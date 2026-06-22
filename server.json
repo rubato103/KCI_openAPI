@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.rubato103/kci-openapi-mcp",
+  "description": "KCI (Korea Citation Index) literature & citation search via REST Open API + OAI-PMH",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/rubato103/KCI_openAPI",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/rubato103/KCI_openAPI",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "kci-openapi-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "KCI_API_KEY",
+          "description": "KCI REST Open API key (issued at open.kci.go.kr). Not needed for OAI-PMH harvesting.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

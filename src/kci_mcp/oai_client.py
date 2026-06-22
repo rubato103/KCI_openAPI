@@ -34,15 +34,27 @@ class KciOaiClient:
         self.timeout = timeout
 
     def _call(self, params: dict) -> str:
+        r = None
         for attempt in range(3):
-            r = requests.get(OAI_URL, params=params, timeout=self.timeout)
+            try:
+                r = requests.get(OAI_URL, params=params, timeout=self.timeout)
+            except requests.exceptions.RequestException as e:
+                if attempt < 2:
+                    time.sleep(1.5 * (2 ** attempt))
+                    continue
+                raise OaiError(type(e).__name__, "네트워크/SSL 오류 — 연결 확인 후 재시도.") from None
             if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
                 time.sleep(1.5 * (2 ** attempt))  # 지수 백오프
                 continue
             break
+        if r is None:  # pragma: no cover
+            raise OaiError("network", "요청 실패.")
         if r.status_code == 429:
             raise OaiError("429", "요청 한도 초과 — throttle 상향 또는 잠시 후 재시도.")
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise OaiError(str(r.status_code), "OAI 서버 응답 오류.")
+        if not r.encoding or r.encoding.lower() in ("iso-8859-1", "latin-1"):
+            r.encoding = r.apparent_encoding or "utf-8"
         return r.text
 
     # ── 단순 verb ────────────────────────────────────────────────────────────

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "kci": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "kci-mcp"],
+      "env": {
+        "KCI_API_KEY": "${KCI_API_KEY:-}",
+        "KCI_OS_TRUST": "${KCI_OS_TRUST:-1}"
+      }
+    }
+  }
+}

@@ -75,3 +75,23 @@ def test_require_api_key_raises_without_key(monkeypatch):
 def test_use_os_trust_idempotent():
     # truststore 가 설치돼 있으면 True, 없으면 False — 예외 없이 반환되어야
     assert config.use_os_trust() in (True, False)
+
+
+# ── 감사 회귀(2026-06-22) ──────────────────────────────────────────────────────
+def test_dedup_key_str_and_doi_normalization():
+    a = Article(source="rest", doi="https://doi.org/10.X/AbC")
+    b = Article(source="oai", doi="10.x/abc")
+    assert isinstance(a.dedup_key(), str)
+    assert a.dedup_key() == b.dedup_key() == "doi:10.x/abc"   # URL 접두만 제거(전체 DOI 보존)
+    assert Article(source="rest", arti_id="ART1").dedup_key() == "id:ART1"
+    # arti_id 결측이어도 str 키(타입 혼합 없음)
+    assert Article(source="oai", title="제목", pub_year="2020").dedup_key() == "tt:제목|2020"
+
+
+def test_matches_empty_is_passthrough():
+    a = Article(source="rest", title="경계선지능 연구")
+    assert a.matches([]) is True          # 빈 필터 = 전부 통과
+    assert a.matches(None) is True
+    assert a.matches([""]) is True        # 빈 문자열만 → 통과
+    assert a.matches(["경계선"]) is True
+    assert a.matches(["없는말"]) is False

@@ -33,15 +33,32 @@ class KciClient:
     def _call(self, api_code: str, params: dict) -> str:
         base = {"apiCode": api_code, "key": self.api_key}
         base.update({k: v for k, v in params.items() if v not in (None, "")})
+        last_exc: Exception | None = None
+        r = None
         for attempt in range(3):
-            r = requests.get(REST_API_URL, params=base, timeout=self.timeout)
+            try:
+                r = requests.get(REST_API_URL, params=base, timeout=self.timeout)
+            except requests.exceptions.RequestException as e:
+                # 네트워크/SSL/타임아웃 — URL(인증키 포함) 노출 금지, 타입만 보고
+                last_exc = e
+                if attempt < 2:
+                    time.sleep(1.5 * (2 ** attempt))
+                    continue
+                raise KciError(f"네트워크 오류({type(e).__name__}) — 연결/SSL 확인 후 재시도.") from None
             if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
                 time.sleep(1.5 * (2 ** attempt))
                 continue
             break
+        if r is None:  # pragma: no cover
+            raise KciError(f"요청 실패({type(last_exc).__name__ if last_exc else 'unknown'}).")
         if r.status_code == 429:
             raise KciError("요청 한도 초과(429) — throttle 상향 또는 잠시 후 재시도.")
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # raise_for_status 는 key 포함 URL 을 메시지에 넣으므로 사용하지 않음
+            raise KciError(f"HTTP {r.status_code} — KCI 서버 응답 오류.")
+        # charset 헤더 부재 시 requests 가 Latin-1 로 폴백 → 한글 깨짐. UTF-8 로 보정.
+        if not r.encoding or r.encoding.lower() in ("iso-8859-1", "latin-1"):
+            r.encoding = r.apparent_encoding or "utf-8"
         return r.text
 
     # ── articleSearch ─────────────────────────────────────────────────────────
@@ -58,11 +75,12 @@ class KciClient:
 
     def search(self, value: str, *, field: str = "title", max_records: int = 1000,
                display: int = 100, **filters) -> list[Article]:
+        rows = min(display, 100)  # 요청 크기와 종료식이 항상 일치하도록 단일 변수로 클램프
         out: list[Article] = []
         seen: set = set()
         page = 1
         while len(out) < max_records and page <= 1000:
-            total, arts = self.search_page(value, field=field, page=page, display=display, **filters)
+            total, arts = self.search_page(value, field=field, page=page, display=rows, **filters)
             if not arts:
                 break
             before = len(out)
@@ -74,7 +92,7 @@ class KciClient:
                 out.append(a)
             if len(out) == before:
                 break
-            if total and page * display >= total:
+            if total and page * rows >= total:
                 break
             page += 1
             time.sleep(self.throttle)
@@ -127,6 +145,7 @@ class KciClient:
     # ── referenceSearch ───────────────────────────────────────────────────────
     def references(self, title: str, *, max_records: int = 100, display: int = 100,
                    **filters) -> list[dict]:
+        # ⚠️ referenceSearch 는 page 파라미터가 없어(가이드 §3) 1회 호출 최대 100건이 API 상한.
         params = {"title": title, "displayCount": min(display, 100)}
         params.update(filters)  # author/institution/pubiYr/sortNm/sortDir
         try:
@@ -139,13 +158,24 @@ class KciClient:
     def citation(self, year: int, *, years: int = 2, max_records: int = 100,
                  display: int = 100, **filters) -> list[dict]:
         years = max(2, min(years, 5))
-        params = {"year": year, "years": years, "displayCount": min(display, 100)}
-        params.update(filters)  # journal/doi/institution/modDate…/sortNm/sortDir
-        try:
-            _, rows = parse_rest_citation(self._call("citation", params))
-        except ParseError as e:
-            raise KciError(str(e)) from e
-        return rows[:max_records]
+        rows = min(display, 100)
+        base = {"year": year, "years": years, "displayCount": rows}
+        base.update(filters)  # journal/doi/institution/modDate…/sortNm/sortDir
+        out: list[dict] = []
+        page = 1
+        while len(out) < max_records and page <= 1000:
+            try:
+                total, recs = parse_rest_citation(self._call("citation", {**base, "page": page}))
+            except ParseError as e:
+                raise KciError(str(e)) from e
+            if not recs:
+                break
+            out.extend(recs)
+            if total and page * rows >= total:
+                break
+            page += 1
+            time.sleep(self.throttle)
+        return out[:max_records]
 
     def citation_detail(self, journal_id: str) -> dict | None:
         try:

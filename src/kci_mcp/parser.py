@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -96,24 +97,23 @@ class ParseError(RuntimeError):
 
 
 # ── REST ────────────────────────────────────────────────────────────────────
-_REST_ERR_KEYS = (
-    "등록되지 않은 key", "사용기간이 종료", "검색 조건이 없습니다",
-    "등록되지 않은 서비스", "범위 오류", "자리 숫자만", "파라미터가 없음", "범위가 맞지 않",
-)
-
-
-def check_rest_error(xml_text: str) -> None:
-    """성공 응답엔 outputData 가 있다. 없으면 본문에서 KCI 에러문구를 탐지해 예외."""
-    if "<outputData" in xml_text or "</outputData>" in xml_text:
-        return
+def _parse_xml(xml_text: str) -> ET.Element:
+    """ET.fromstring 래퍼 — 파싱 실패를 ParseError 로 매핑(원시 ET.ParseError 누출 방지)."""
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
+        return ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise ParseError(f"XML 파싱 실패: {e}") from e
+
+
+def check_rest_error(root: ET.Element) -> None:
+    """성공 응답엔 outputData 가 있다. 없으면 에러 응답으로 보고 본문을 담아 예외.
+
+    (화이트리스트 의존 없이 'outputData 부재 = 에러' 로 판정 — 미등록 에러문구·신규 에러도 포착.)
+    """
+    if _desc(root, "outputData") is not None:
         return
     joined = " ".join((e.text or "").strip() for e in root.iter() if (e.text or "").strip())
-    for k in _REST_ERR_KEYS:
-        if k in joined:
-            raise ParseError(joined[:300] or "KCI REST 오류")
+    raise ParseError(joined[:300] or "KCI REST 오류 응답(outputData 없음)")
 
 
 def _article_from_rest_record(rec: ET.Element) -> Article:
@@ -166,8 +166,8 @@ def _article_from_rest_record(rec: ET.Element) -> Article:
 
 
 def parse_rest_articles(xml_text: str) -> tuple[int, list[Article]]:
-    check_rest_error(xml_text)
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
+    check_rest_error(root)
     total = 0
     res = _desc(root, "result")
     if res is not None:
@@ -185,8 +185,8 @@ def parse_rest_articles(xml_text: str) -> tuple[int, list[Article]]:
 
 
 def parse_rest_references(xml_text: str) -> tuple[int, list[dict[str, str]]]:
-    check_rest_error(xml_text)
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
+    check_rest_error(root)
     total = 0
     res = _desc(root, "result")
     if res is not None:
@@ -204,8 +204,8 @@ def parse_rest_references(xml_text: str) -> tuple[int, list[dict[str, str]]]:
 
 
 def parse_rest_citation(xml_text: str) -> tuple[int, list[dict[str, Any]]]:
-    check_rest_error(xml_text)
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
+    check_rest_error(root)
     total = 0
     res = _desc(root, "result")
     if res is not None:
@@ -276,8 +276,10 @@ def _article_from_oai_dc(dc: ET.Element) -> Article:
         elif name == "publisher":
             a.publisher = val
         elif name == "date" and val:
-            a.pub_year = val[:4]
-            a.pub_mon = val[5:7] if len(val) >= 7 else ""
+            m = re.match(r"(\d{4})\D*(\d{1,2})?", val)  # YYYY / YYYY-MM / YYYYMM 등 변형 견고
+            if m:
+                a.pub_year = m.group(1)
+                a.pub_mon = m.group(2).zfill(2) if m.group(2) else ""
         elif name == "url":
             a.url = val
     return a
@@ -325,15 +327,16 @@ def _article_from_oai_kci(kci: ET.Element) -> Article:
 
 def parse_oai_records(xml_text: str) -> tuple[list[Article], str | None]:
     """ListRecords/GetRecord 응답 → (Article 목록, resumptionToken|None)."""
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
     check_oai_error(root)
     arts: list[Article] = []
     for rec in _desc_all(root, "record"):
         meta = _child(rec, "metadata")
         art: Article | None = None
         if meta is not None:
-            kci = _desc(meta, "oai_kci")
-            dc = _desc(meta, "dc")
+            # metadata 직속 자식만 검사(후손 over-match 방지): oai_kci 래퍼/oai_dc:dc 래퍼 모두 직속
+            kci = _child(meta, "oai_kci")
+            dc = _child(meta, "dc")
             if kci is not None:
                 art = _article_from_oai_kci(kci)
             elif dc is not None:
@@ -352,7 +355,7 @@ def parse_oai_records(xml_text: str) -> tuple[list[Article], str | None]:
 
 
 def parse_oai_identify(xml_text: str) -> dict[str, str]:
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
     check_oai_error(root)
     idn = _desc(root, "Identify") or root
     keys = ["repositoryName", "baseURL", "protocolVersion", "adminEmail",
@@ -361,14 +364,14 @@ def parse_oai_identify(xml_text: str) -> dict[str, str]:
 
 
 def parse_oai_sets(xml_text: str) -> list[dict[str, str]]:
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
     check_oai_error(root)
     return [{"setSpec": _text(_child(s, "setSpec")), "setName": _text(_child(s, "setName"))}
             for s in _desc_all(root, "set")]
 
 
 def parse_oai_formats(xml_text: str) -> list[dict[str, str]]:
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
     check_oai_error(root)
     return [{"metadataPrefix": _text(_child(f, "metadataPrefix")),
              "schema": _text(_child(f, "schema")),
@@ -377,7 +380,7 @@ def parse_oai_formats(xml_text: str) -> list[dict[str, str]]:
 
 
 def parse_oai_identifiers(xml_text: str) -> tuple[list[dict[str, str]], str | None]:
-    root = ET.fromstring(xml_text)
+    root = _parse_xml(xml_text)
     check_oai_error(root)
     headers = [{"identifier": _text(_child(h, "identifier")),
                 "datestamp": _text(_child(h, "datestamp")),

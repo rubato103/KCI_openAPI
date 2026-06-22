@@ -68,5 +68,10 @@ def use_os_trust() -> bool:
         truststore.inject_into_ssl()
         _TRUST_INJECTED = True
         return True
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("kci_mcp").warning(
+            "truststore OS 신뢰저장소 주입 실패(%s) — TLS 인터셉션 망에서 인증서 오류 가능. "
+            "대안: REQUESTS_CA_BUNDLE 로 루트 CA 지정.", type(e).__name__)
         return False

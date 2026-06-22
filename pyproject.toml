@@ -31,8 +31,9 @@ dependencies = [
 ]
 
 [project.scripts]
-kci-mcp = "kci_mcp.server:main"
-kci = "kci_mcp.cli:main"
+kci-openapi-mcp = "kci_mcp.server:main"   # 패키지명과 동일 — `uvx kci-openapi-mcp` 로 바로 실행(레지스트리)
+kci-mcp = "kci_mcp.server:main"           # 짧은 별칭
+kci = "kci_mcp.cli:main"                  # CLI
 
 [project.urls]
 Homepage = "https://github.com/rubato103/KCI_openAPI"

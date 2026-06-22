@@ -51,8 +51,22 @@ class Article:
             row[col] = list_sep.join(val) if isinstance(val, list) else val
         return row
 
-    def dedup_key(self):
-        return self.arti_id or self.doi or (self.title, self.pub_year)
+    def dedup_key(self) -> str:
+        """항상 동일 타입(str) 키 — id/doi/제목폴백 키스페이스 분리, DOI 정규화.
+
+        (REST+OAI 교차 중복제거 신뢰성: arti_id 결측 시에도 일관 비교)
+        """
+        if self.arti_id:
+            return "id:" + self.arti_id
+        if self.doi:
+            d = self.doi.strip().lower()
+            for pre in ("https://doi.org/", "http://doi.org/",
+                        "https://dx.doi.org/", "http://dx.doi.org/", "doi:"):
+                if d.startswith(pre):
+                    d = d[len(pre):]
+                    break
+            return "doi:" + d
+        return "tt:" + self.title.strip().lower() + "|" + (self.pub_year or "")
 
     def haystack(self) -> str:
         """부분일치 필터용 전체 텍스트(소문자)."""
@@ -62,8 +76,14 @@ class Article:
         return "\n".join(parts).lower()
 
     def matches(self, subs) -> bool:
-        """subs(문자열 또는 목록) 중 하나라도 부분일치하면 True (대소문자 무시)."""
+        """subs(문자열 또는 목록) 중 하나라도 부분일치하면 True (대소문자 무시).
+
+        빈 필터(None/빈 리스트)는 '필터 없음 = 전부 통과'로 처리한다.
+        """
         if isinstance(subs, str):
             subs = [subs]
+        subs = [s for s in (subs or []) if s and s.strip()]
+        if not subs:
+            return True
         hay = self.haystack()
         return any(s.lower() in hay for s in subs)

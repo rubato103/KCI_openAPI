@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -17,8 +18,24 @@ from .router import decide_backend
 mcp = FastMCP("kci")
 
 
+def _safe(fn):
+    """도구는 **항상 JSON 직렬화 가능한 dict** 를 반환 — 어떤 예외도 도구 밖으로 누수 금지.
+
+    (네트워크/SSL/HTTP/파싱 예외가 MCP 프로토콜 밖으로 새어 클라이언트가 깨지는 것을 방지.
+    _call 단계에서 인증키 포함 URL 은 이미 제거되므로 메시지에 키가 노출되지 않는다.)
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}"}
+    return wrapper
+
+
 # ── 상태 ──────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_safe
 def kci_status() -> dict:
     """연결 점검 — OAI(무인증) Identify + REST 인증키 보유 여부."""
     info: dict = {"has_api_key": get_api_key() is not None}
@@ -35,6 +52,7 @@ def kci_status() -> dict:
 
 # ── REST ─────────────────────────────────────────────────────────────────────
 @mcp.tool()
+@_safe
 def kci_search(title: str, author: str | None = None, journal: str | None = None,
                keyword: str | None = None, abstract: str | None = None, doi: str | None = None,
                date_from: str | None = None, date_to: str | None = None,
@@ -46,7 +64,8 @@ def kci_search(title: str, author: str | None = None, journal: str | None = None
     """
     if get_api_key() is None:
         return {"error": "KCI_API_KEY 미설정 — REST 검색 불가. 인증키 없이 수집하려면 kci_harvest 사용.",
-                "hint": "kci_harvest(set_spec='ARTI', date_from='2013-01-01', contains=['" + title + "'])"}
+                "hint": "kci_harvest 로 OAI(무인증) 날짜범위 수확 후 contains 로 필터하세요.",
+                "suggested_contains": [title]}
     from .client import KciClient, KciError
     filters = {k: v for k, v in {
         "author": author, "journal": journal, "keyword": keyword,
@@ -61,6 +80,7 @@ def kci_search(title: str, author: str | None = None, journal: str | None = None
 
 
 @mcp.tool()
+@_safe
 def kci_detail(arti_id: str) -> dict:
     """[REST] Control Number(ART…)로 논문 상세·초록·키워드·저자 조회. 인증키 필요."""
     if get_api_key() is None:
@@ -74,6 +94,7 @@ def kci_detail(arti_id: str) -> dict:
 
 
 @mcp.tool()
+@_safe
 def kci_references(title: str, author: str | None = None, pub_year: str | None = None,
                   rows: int = 50) -> dict:
     """[REST] 제목 검색어에 매칭된 논문들의 참고문헌 원형 수집. 인증키 필요."""
@@ -89,6 +110,7 @@ def kci_references(title: str, author: str | None = None, pub_year: str | None =
 
 
 @mcp.tool()
+@_safe
 def kci_journal_citation(year: int | None = None, years: int = 2, journal_id: str | None = None,
                         rows: int = 50) -> dict:
     """[REST] 저널 인용지수 — year(+years 2~5)로 목록 / journal_id 로 상세(등재이력·연도별 IF). 인증키 필요."""
@@ -110,6 +132,7 @@ def kci_journal_citation(year: int | None = None, years: int = 2, journal_id: st
 
 # ── OAI-PMH (무인증) ───────────────────────────────────────────────────────────
 @mcp.tool()
+@_safe
 def kci_harvest(set_spec: str = "ARTI", date_from: str | None = None, date_until: str | None = None,
                 metadata_prefix: str = "oai_kci", contains: list[str] | None = None,
                 max_records: int = 200) -> dict:
@@ -131,6 +154,7 @@ def kci_harvest(set_spec: str = "ARTI", date_from: str | None = None, date_until
 
 # ── 혼용 수집 + 내보내기 ─────────────────────────────────────────────────────────
 @mcp.tool()
+@_safe
 def kci_collect(title: str | None = None, terms: list[str] | None = None, set_spec: str = "ARTI",
                 year_from: int | None = None, year_to: int | None = None,
                 date_from: str | None = None, date_until: str | None = None,
