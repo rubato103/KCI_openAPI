@@ -1,0 +1,23 @@
+# 자격증명
+.env
+.env.*
+!.env.example
+
+# 공식 원본 매뉴얼 (비공개)
+reference/
+
+# 수집 산출물
+output/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# OS / 에디터
+.DS_Store
+Thumbs.db

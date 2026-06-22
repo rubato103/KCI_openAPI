@@ -1,0 +1,384 @@
+"""KCI 응답(XML) → 정규화 레코드.
+
+두 소스를 모두 흡수한다.
+  - REST  : <MetaData><outputData><result><total/></result><record><journalInfo/><articleInfo/></record>
+  - OAI    : <OAI-PMH>…<record><header/><metadata><oai_kci|oai_dc:dc/></metadata></record>…<resumptionToken/>
+
+네임스페이스는 localname 으로 제거해 처리한다. PDF 예시의 전각 따옴표(lang=“…”)는 실제 응답에선 표준 따옴표.
+⚠️ 라이브 미검증 — 첫 응답으로 태그/속성 확정 후 갱신.
+"""
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from typing import Any
+
+from .models import Article
+
+
+# ── XML 헬퍼 ────────────────────────────────────────────────────────────────
+def _ln(tag: str) -> str:
+    return tag.split("}", 1)[-1]  # 네임스페이스 제거
+
+
+def _text(el: ET.Element | None) -> str:
+    return (el.text or "").strip() if el is not None and el.text else ""
+
+
+def _child(el: ET.Element | None, name: str) -> ET.Element | None:
+    if el is None:
+        return None
+    for c in el:
+        if _ln(c.tag) == name:
+            return c
+    return None
+
+
+def _children(el: ET.Element | None, name: str) -> list[ET.Element]:
+    if el is None:
+        return []
+    return [c for c in el if _ln(c.tag) == name]
+
+
+def _desc(el: ET.Element | None, name: str) -> ET.Element | None:
+    """후손 중 localname 일치하는 첫 요소."""
+    if el is None:
+        return None
+    for x in el.iter():
+        if x is not el and _ln(x.tag) == name:
+            return x
+    return None
+
+
+def _desc_all(el: ET.Element, name: str) -> list[ET.Element]:
+    return [x for x in el.iter() if x is not el and _ln(x.tag) == name]
+
+
+def _elem_to_dict(rec: ET.Element) -> dict[str, Any]:
+    """레코드 하위 leaf 텍스트/주요 속성을 평탄 dict 로 보존(raw)."""
+    d: dict[str, Any] = {}
+    for el in rec.iter():
+        if el is rec:
+            continue
+        key = _ln(el.tag)
+        val = _text(el)
+        for ak, av in el.attrib.items():
+            d.setdefault(f"{key}@{_ln(ak)}", av)
+        if not val:
+            continue
+        if key in d:
+            d[key] = d[key] + [val] if isinstance(d[key], list) else [d[key], val]
+        else:
+            d[key] = val
+    return d
+
+
+def _apply_titles(tg: ET.Element | None, a: Article) -> None:
+    titles = _children(tg, "article-title")
+    for t in titles:
+        lang = t.attrib.get("lang")
+        if lang == "english":
+            a.title_en = _text(t)
+        elif lang == "original":
+            a.title = _text(t)
+        elif lang == "foreign" and not a.title_en:
+            a.title_en = _text(t)
+    if not a.title and titles:
+        a.title = _text(titles[0])
+
+
+def _split_creators(val: str) -> list[str]:
+    return [p.strip() for p in val.split(";") if p.strip()]
+
+
+# ── 공통 에러 ────────────────────────────────────────────────────────────────
+class ParseError(RuntimeError):
+    pass
+
+
+# ── REST ────────────────────────────────────────────────────────────────────
+_REST_ERR_KEYS = (
+    "등록되지 않은 key", "사용기간이 종료", "검색 조건이 없습니다",
+    "등록되지 않은 서비스", "범위 오류", "자리 숫자만", "파라미터가 없음", "범위가 맞지 않",
+)
+
+
+def check_rest_error(xml_text: str) -> None:
+    """성공 응답엔 outputData 가 있다. 없으면 본문에서 KCI 에러문구를 탐지해 예외."""
+    if "<outputData" in xml_text or "</outputData>" in xml_text:
+        return
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return
+    joined = " ".join((e.text or "").strip() for e in root.iter() if (e.text or "").strip())
+    for k in _REST_ERR_KEYS:
+        if k in joined:
+            raise ParseError(joined[:300] or "KCI REST 오류")
+
+
+def _article_from_rest_record(rec: ET.Element) -> Article:
+    a = Article(source="rest")
+    ji = _child(rec, "journalInfo")
+    if ji is not None:
+        a.journal = _text(_child(ji, "journal-name"))
+        a.issn = _text(_child(ji, "issn"))
+        a.publisher = _text(_child(ji, "publisher-name"))
+        a.pub_year = _text(_child(ji, "pub-year"))
+        a.pub_mon = _text(_child(ji, "pub-mon"))
+        a.volume = _text(_child(ji, "volume"))
+        a.issue = _text(_child(ji, "issue"))
+    ai = _child(rec, "articleInfo")
+    if ai is not None:
+        a.arti_id = ai.attrib.get("article-id", "")
+        a.categories = _text(_child(ai, "article-categories"))
+        _apply_titles(_child(ai, "title-group"), a)
+        ag = _child(ai, "author-group")
+        if ag is not None:
+            authors: list[str] = []
+            for au in _children(ag, "author"):
+                nm = _text(au)
+                if not nm:  # articleDetail: 중첩 name/institution
+                    name = _text(_child(au, "name"))
+                    inst = _text(_child(au, "institution"))
+                    nm = f"{name}({inst})" if inst else name
+                if nm:
+                    authors.append(nm)
+            a.authors = authors
+        # 초록: articleSearch=abstract-group, articleDetail=직속 abstract
+        abg = _child(ai, "abstract-group")
+        abs_els = _children(abg, "abstract") if abg is not None else _children(ai, "abstract")
+        for ab in abs_els:
+            if ab.attrib.get("lang") == "english":
+                a.abstract_en = _text(ab)
+            else:
+                a.abstract = _text(ab)
+        kg = _child(ai, "keyword-group")
+        if kg is not None:
+            a.keywords = [_text(k) for k in _children(kg, "keyword") if _text(k)]
+        a.doi = _text(_child(ai, "doi"))
+        a.uci = _text(_child(ai, "uci"))
+        cc = _child(ai, "citation-count")
+        if cc is not None:
+            a.citation_count = _text(cc) or cc.attrib.get("kci", "")
+        a.url = _text(_child(ai, "url"))
+    a.raw = _elem_to_dict(rec)
+    return a
+
+
+def parse_rest_articles(xml_text: str) -> tuple[int, list[Article]]:
+    check_rest_error(xml_text)
+    root = ET.fromstring(xml_text)
+    total = 0
+    res = _desc(root, "result")
+    if res is not None:
+        t = _child(res, "total")
+        if t is not None and _text(t).isdigit():
+            total = int(_text(t))
+    scope = _desc(root, "outputData") or root
+    arts: list[Article] = []
+    for rec in _desc_all(scope, "record"):
+        if _child(rec, "articleInfo") is None and _child(rec, "journalInfo") is None:
+            continue  # 참고문헌 레코드 등은 건너뜀
+        arts.append(_article_from_rest_record(rec))
+    return total, arts
+
+
+def parse_rest_references(xml_text: str) -> tuple[int, list[dict[str, str]]]:
+    check_rest_error(xml_text)
+    root = ET.fromstring(xml_text)
+    total = 0
+    res = _desc(root, "result")
+    if res is not None:
+        t = _child(res, "total")
+        if t is not None and _text(t).isdigit():
+            total = int(_text(t))
+    scope = _desc(root, "outputData") or root
+    refs: list[dict[str, str]] = []
+    for rec in _desc_all(scope, "record"):
+        if list(rec):  # 자식 있는 record(논문 레코드)는 제외
+            continue
+        refs.append({"article_id": rec.attrib.get("article-id", ""), "text": _text(rec)})
+    return total, refs
+
+
+def parse_rest_citation(xml_text: str) -> tuple[int, list[dict[str, Any]]]:
+    check_rest_error(xml_text)
+    root = ET.fromstring(xml_text)
+    total = 0
+    res = _desc(root, "result")
+    if res is not None:
+        t = _child(res, "total")
+        if t is not None and _text(t).isdigit():
+            total = int(_text(t))
+    scope = _desc(root, "outputData") or root
+    rows: list[dict[str, Any]] = []
+    for rec in _desc_all(scope, "record"):
+        d = _elem_to_dict(rec)
+        ji = _child(rec, "journalInfo")
+        if ji is not None and ji.attrib.get("journal-id"):
+            d["journal-id"] = ji.attrib["journal-id"]
+        rows.append(d)
+    return total, rows
+
+
+# ── OAI-PMH ──────────────────────────────────────────────────────────────────
+class OaiError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+
+
+def check_oai_error(root: ET.Element) -> None:
+    err = _desc(root, "error")
+    if err is not None:
+        raise OaiError(err.attrib.get("code", "error"), _text(err) or "OAI 오류")
+
+
+def _article_from_oai_dc(dc: ET.Element) -> Article:
+    a = Article(source="oai")
+    for ch in dc:
+        name = _ln(ch.tag)
+        val = _text(ch)
+        lang = ch.attrib.get("lang")
+        typ = ch.attrib.get("type")
+        if name == "title":
+            if lang == "english":
+                a.title_en = val
+            elif not a.title:
+                a.title = val
+        elif name == "creator":
+            a.authors.extend(_split_creators(val))
+        elif name == "subject":
+            if not a.categories:
+                a.categories = val
+        elif name == "identifier":
+            if typ == "artiId":
+                a.arti_id = val
+            elif typ == "doi":
+                a.doi = val
+            elif typ == "uci":
+                a.uci = val
+            elif typ == "citedCnt":
+                a.citation_count = val
+            elif typ == "journalInfo":
+                a.journal = val.split(",")[0].strip()
+                if ch.attrib.get("issn"):
+                    a.issn = ch.attrib["issn"]
+        elif name == "description":
+            if lang == "english":
+                a.abstract_en = val
+            elif not a.abstract:
+                a.abstract = val
+        elif name == "publisher":
+            a.publisher = val
+        elif name == "date" and val:
+            a.pub_year = val[:4]
+            a.pub_mon = val[5:7] if len(val) >= 7 else ""
+        elif name == "url":
+            a.url = val
+    return a
+
+
+def _article_from_oai_kci(kci: ET.Element) -> Article:
+    a = Article(source="oai")
+    ji = _child(kci, "journalInfo")
+    if ji is not None:
+        a.journal = _text(_child(ji, "journal-name"))
+        a.issn = _text(_child(ji, "pissn")) or _text(_child(ji, "eissn"))
+        a.publisher = _text(_child(ji, "publisher-name"))
+        a.pub_year = _text(_child(ji, "pub-year"))
+        a.pub_mon = _text(_child(ji, "pub-mon"))
+        a.volume = _text(_child(ji, "volume"))
+        a.issue = _text(_child(ji, "issue"))
+    ai = _child(kci, "articleInfo")
+    if ai is not None:
+        a.arti_id = ai.attrib.get("article-id", "")
+        a.categories = _text(_child(ai, "article-categories"))
+        _apply_titles(_child(ai, "title-group"), a)
+        # 저자: author-name(이름+소속 분리) 우선, 없으면 author-group
+        an = _child(ai, "author-name")
+        if an is not None:
+            for au in _children(an, "author"):
+                name = _text(_child(au, "name"))
+                aff = _text(_child(au, "affiliation"))
+                if name:
+                    a.authors.append(f"{name}({aff})" if aff else name)
+        if not a.authors:
+            ag = _child(ai, "author-group")
+            a.authors = [_text(x) for x in _children(ag, "author") if _text(x)]
+        abg = _child(ai, "abstract-group")
+        for ab in _children(abg, "abstract"):
+            if ab.attrib.get("lang") == "english":
+                a.abstract_en = _text(ab)
+            else:
+                a.abstract = _text(ab)
+        a.doi = _text(_child(ai, "doi"))
+        a.uci = _text(_child(ai, "uci"))
+        a.citation_count = _text(_child(ai, "citation-count"))
+        a.url = _text(_child(ai, "url"))
+    return a
+
+
+def parse_oai_records(xml_text: str) -> tuple[list[Article], str | None]:
+    """ListRecords/GetRecord 응답 → (Article 목록, resumptionToken|None)."""
+    root = ET.fromstring(xml_text)
+    check_oai_error(root)
+    arts: list[Article] = []
+    for rec in _desc_all(root, "record"):
+        meta = _child(rec, "metadata")
+        art: Article | None = None
+        if meta is not None:
+            kci = _desc(meta, "oai_kci")
+            dc = _desc(meta, "dc")
+            if kci is not None:
+                art = _article_from_oai_kci(kci)
+            elif dc is not None:
+                art = _article_from_oai_dc(dc)
+        if art is None:
+            continue
+        hdr = _child(rec, "header")
+        if hdr is not None:
+            art.raw["oai_identifier"] = _text(_child(hdr, "identifier"))
+            art.raw["datestamp"] = _text(_child(hdr, "datestamp"))
+            art.raw["setSpec"] = _text(_child(hdr, "setSpec"))
+        arts.append(art)
+    rt = _desc(root, "resumptionToken")
+    token = _text(rt) if rt is not None else None
+    return arts, (token or None)
+
+
+def parse_oai_identify(xml_text: str) -> dict[str, str]:
+    root = ET.fromstring(xml_text)
+    check_oai_error(root)
+    idn = _desc(root, "Identify") or root
+    keys = ["repositoryName", "baseURL", "protocolVersion", "adminEmail",
+            "earliestDatestamp", "deletedRecord", "granularity"]
+    return {k: _text(_desc(idn, k)) for k in keys}
+
+
+def parse_oai_sets(xml_text: str) -> list[dict[str, str]]:
+    root = ET.fromstring(xml_text)
+    check_oai_error(root)
+    return [{"setSpec": _text(_child(s, "setSpec")), "setName": _text(_child(s, "setName"))}
+            for s in _desc_all(root, "set")]
+
+
+def parse_oai_formats(xml_text: str) -> list[dict[str, str]]:
+    root = ET.fromstring(xml_text)
+    check_oai_error(root)
+    return [{"metadataPrefix": _text(_child(f, "metadataPrefix")),
+             "schema": _text(_child(f, "schema")),
+             "metadataNamespace": _text(_child(f, "metadataNamespace"))}
+            for f in _desc_all(root, "metadataFormat")]
+
+
+def parse_oai_identifiers(xml_text: str) -> tuple[list[dict[str, str]], str | None]:
+    root = ET.fromstring(xml_text)
+    check_oai_error(root)
+    headers = [{"identifier": _text(_child(h, "identifier")),
+                "datestamp": _text(_child(h, "datestamp")),
+                "setSpec": _text(_child(h, "setSpec"))}
+               for h in _desc_all(root, "header")]
+    rt = _desc(root, "resumptionToken")
+    return headers, (_text(rt) if rt is not None else None) or None

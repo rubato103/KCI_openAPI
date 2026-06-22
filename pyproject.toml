@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kci-openapi-mcp"
+version = "0.1.0"
+description = "MCP server + CLI for KCI (Korea Citation Index) — REST Open API + OAI-PMH hybrid harvester"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Yeondong Yang" }]
+keywords = ["mcp", "kci", "nrf", "openapi", "oai-pmh", "academic", "literature", "metadata"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Processing :: Indexing",
+]
+dependencies = [
+    "mcp>=1.2.0",
+    "requests>=2.31.0",
+    "openpyxl>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "truststore>=0.9",  # 교육망/사내망 SSL 인터셉션 대응(OS 신뢰저장소 사용, 검증 유지)
+]
+
+[project.scripts]
+kci-mcp = "kci_mcp.server:main"
+kci = "kci_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rubato103/KCI_openAPI"
+Repository = "https://github.com/rubato103/KCI_openAPI"
+Issues = "https://github.com/rubato103/KCI_openAPI/issues"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kci_mcp"]

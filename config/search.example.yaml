@@ -1,0 +1,26 @@
+# KCI 혼용 수집 설정 예시 (kci collect --config config/search.example.yaml)
+project: parent_kci
+
+# 백엔드: auto(라우터) | rest | oai
+#  - auto + title + 인증키  → REST 검색
+#  - auto + title + 키없음  → OAI 수확 + title 로컬 필터
+#  - auto + title 없음      → OAI 세트/날짜 전수 수확
+backend: auto
+
+# 주제어(있으면 검색형). 키 없으면 OAI 로컬 필터어로 사용.
+title: 학부모
+
+# OAI 수확 범위(키워드 없거나 키 없을 때 사용)
+oai:
+  set: ARTI                 # ARTI(논문) / ARTI_CONF(학술대회) / JOUR(학술지)
+  metadata_prefix: oai_kci  # oai_kci(상세·초록) / oai_dc(간략)
+  date_from: "2013-01-01"   # YYYY-MM-DD (KCI 최초 2013-03-21)
+  date_until: "2025-12-31"
+  contains: ["학부모"]       # 로컬 부분일치 필터(제목/초록/키워드 등)
+
+max_records: 2000
+throttle_sec: 0.5
+
+output:
+  formats: [xlsx, csv, json]
+  dir: output/parent_kci
