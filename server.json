@@ -10,11 +10,11 @@
   "websiteUrl": "https://github.com/rubato103/KCI_openAPI",
   "packages": [
     {
-      "registryType": "pypi",
-      "identifier": "kci-openapi-mcp",
+      "registryType": "mcpb",
+      "identifier": "https://github.com/rubato103/KCI_openAPI/releases/download/v0.1.0/kci-openapi-mcp.mcpb",
       "version": "0.1.0",
-      "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
+      "fileSha256": "__MCPB_SHA256__",
       "environmentVariables": [
         {
           "name": "KCI_API_KEY",

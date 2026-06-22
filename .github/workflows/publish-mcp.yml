@@ -1,7 +1,7 @@
-name: Publish to PyPI + MCP Registry
+name: Publish to MCP Registry (.mcpb)
 
-# 버전 태그 푸시 시 PyPI(Trusted Publishing/OIDC) 게시 후 공식 MCP 레지스트리에 발행.
-# 사전 1회 설정(웹 UI): PyPI 프로젝트에 GitHub Trusted Publisher 등록(이 repo/워크플로).
+# 버전 태그 푸시 시: .mcpb 빌드 → GitHub Release 첨부 → server.json 에 sha256 주입 →
+# 공식 MCP 레지스트리에 GitHub OIDC 로 발행. PyPI 불필요, 시크릿 0개.
 on:
   push:
     tags: ["v*"]
@@ -10,24 +10,36 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # OIDC: PyPI Trusted Publishing + mcp-publisher github-oidc
-      contents: read
+      id-token: write   # mcp-publisher github-oidc 인증
+      contents: write   # GitHub Release 생성/업로드
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-      - name: Build sdist + wheel
-        run: uv build
+      - name: Build .mcpb (manifest 패키징)
+        run: npx -y @anthropic-ai/mcpb@latest pack mcpb kci-openapi-mcp.mcpb
 
-      - name: Publish to PyPI (Trusted Publishing, OIDC)
-        run: uv publish
-        # 토큰 방식 대안: run: uv publish --token ${{ secrets.PYPI_API_TOKEN }}
+      - name: Compute sha256 → server.json 주입
+        run: |
+          SHA=$(sha256sum kci-openapi-mcp.mcpb | cut -d' ' -f1)
+          echo "sha256=$SHA"
+          sed -i "s/__MCPB_SHA256__/$SHA/" server.json
+          grep -q "$SHA" server.json && echo "server.json 주입 확인"
+
+      - name: GitHub Release 생성 + .mcpb 첨부
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" kci-openapi-mcp.mcpb \
+            --title "${{ github.ref_name }}" \
+            --notes "KCI(Korea Citation Index) MCP ${{ github.ref_name }} — Claude Desktop .mcpb 번들"
 
       - name: Install mcp-publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Authenticate to MCP Registry (GitHub OIDC)
         run: ./mcp-publisher login github-oidc
