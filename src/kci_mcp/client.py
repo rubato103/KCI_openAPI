@@ -45,22 +45,24 @@ class KciClient:
         return r.text
 
     # ── articleSearch ─────────────────────────────────────────────────────────
-    def search_page(self, title: str, *, page: int = 1, display: int = 100,
+    # 라이브 검증(2026-06-22): `title` 은 제목검색(토큰화, 띄어쓰기 무관). `keyword` 는 **단독 검색 가능**
+    # (title 없이도 동작) — 제목엔 없고 키워드에만 있는 논문 회수에 유효. `abstract` 단독은 0건.
+    def search_page(self, value: str, *, field: str = "title", page: int = 1, display: int = 100,
                     **filters) -> tuple[int, list[Article]]:
-        params = {"title": title, "page": page, "displayCount": min(display, 100)}
-        params.update(filters)  # author/journal/keyword/abstract/doi/dateFrom… sortNm/sortDir
+        params = {field: value, "page": page, "displayCount": min(display, 100)}
+        params.update(filters)  # author/journal/doi/dateFrom… sortNm/sortDir
         try:
             return parse_rest_articles(self._call("articleSearch", params))
         except ParseError as e:
             raise KciError(str(e)) from e
 
-    def search(self, title: str, *, max_records: int = 1000, display: int = 100,
-               **filters) -> list[Article]:
+    def search(self, value: str, *, field: str = "title", max_records: int = 1000,
+               display: int = 100, **filters) -> list[Article]:
         out: list[Article] = []
         seen: set = set()
         page = 1
         while len(out) < max_records and page <= 1000:
-            total, arts = self.search_page(title, page=page, display=display, **filters)
+            total, arts = self.search_page(value, field=field, page=page, display=display, **filters)
             if not arts:
                 break
             before = len(out)
@@ -78,13 +80,15 @@ class KciClient:
             time.sleep(self.throttle)
         return out[:max_records]
 
-    def search_terms(self, terms, *, year_from: int | None = None, year_to: int | None = None,
+    def search_terms(self, terms, *, fields=("title", "keyword"),
+                     year_from: int | None = None, year_to: int | None = None,
                      max_records: int = 3000, display: int = 100, contains=None,
                      **filters) -> list[Article]:
-        """여러 변형어를 **각각 title 로 개별 검색**해 arti_id/DOI 합집합(중복제거).
+        """여러 변형어를 **각 필드(기본 title+keyword)로 개별 검색**해 arti_id/DOI 합집합(중복제거).
 
-        (KCI articleSearch 는 title 필수 — 키워드/초록 단독검색 불가. 변형어 목록으로 회수 보강.)
-        year_from/to → dateFrom/dateTo(YYYYMM). contains → 결과 부분일치 후처리 필터.
+        KCI는 필드 내 OR 연산자가 없으므로 변형어·필드별 개별검색 합집합이 정석.
+        title=제목검색, keyword=키워드검색(단독 가능). year_from/to→dateFrom/To(YYYYMM).
+        contains→결과 부분일치 후처리 필터.
         """
         terms = [t.strip() for t in (terms or []) if t and t.strip()]
         if year_from:
@@ -94,12 +98,16 @@ class KciClient:
         out: list[Article] = []
         seen: set = set()
         for term in terms:
-            for a in self.search(term, max_records=max_records, display=display, **filters):
-                k = a.dedup_key()
-                if k in seen:
-                    continue
-                seen.add(k)
-                out.append(a)
+            for field in fields:
+                for a in self.search(term, field=field, max_records=max_records,
+                                     display=display, **filters):
+                    k = a.dedup_key()
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    out.append(a)
+                if len(out) >= max_records:
+                    break
             if len(out) >= max_records:
                 break
         out = out[:max_records]
