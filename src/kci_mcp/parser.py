@@ -174,7 +174,8 @@ def parse_rest_articles(xml_text: str) -> tuple[int, list[Article]]:
         t = _child(res, "total")
         if t is not None and _text(t).isdigit():
             total = int(_text(t))
-    scope = _desc(root, "outputData") or root
+    out = _desc(root, "outputData")
+    scope = out if out is not None else root
     arts: list[Article] = []
     for rec in _desc_all(scope, "record"):
         if _child(rec, "articleInfo") is None and _child(rec, "journalInfo") is None:
@@ -192,7 +193,8 @@ def parse_rest_references(xml_text: str) -> tuple[int, list[dict[str, str]]]:
         t = _child(res, "total")
         if t is not None and _text(t).isdigit():
             total = int(_text(t))
-    scope = _desc(root, "outputData") or root
+    out = _desc(root, "outputData")
+    scope = out if out is not None else root
     refs: list[dict[str, str]] = []
     for rec in _desc_all(scope, "record"):
         if list(rec):  # 자식 있는 record(논문 레코드)는 제외
@@ -210,7 +212,8 @@ def parse_rest_citation(xml_text: str) -> tuple[int, list[dict[str, Any]]]:
         t = _child(res, "total")
         if t is not None and _text(t).isdigit():
             total = int(_text(t))
-    scope = _desc(root, "outputData") or root
+    out = _desc(root, "outputData")
+    scope = out if out is not None else root
     rows: list[dict[str, Any]] = []
     for rec in _desc_all(scope, "record"):
         d = _elem_to_dict(rec)
