@@ -78,6 +78,36 @@ class KciClient:
             time.sleep(self.throttle)
         return out[:max_records]
 
+    def search_terms(self, terms, *, year_from: int | None = None, year_to: int | None = None,
+                     max_records: int = 3000, display: int = 100, contains=None,
+                     **filters) -> list[Article]:
+        """여러 변형어를 **각각 title 로 개별 검색**해 arti_id/DOI 합집합(중복제거).
+
+        (KCI articleSearch 는 title 필수 — 키워드/초록 단독검색 불가. 변형어 목록으로 회수 보강.)
+        year_from/to → dateFrom/dateTo(YYYYMM). contains → 결과 부분일치 후처리 필터.
+        """
+        terms = [t.strip() for t in (terms or []) if t and t.strip()]
+        if year_from:
+            filters["dateFrom"] = f"{year_from}01"
+        if year_to:
+            filters["dateTo"] = f"{year_to}12"
+        out: list[Article] = []
+        seen: set = set()
+        for term in terms:
+            for a in self.search(term, max_records=max_records, display=display, **filters):
+                k = a.dedup_key()
+                if k in seen:
+                    continue
+                seen.add(k)
+                out.append(a)
+            if len(out) >= max_records:
+                break
+        out = out[:max_records]
+        if contains:
+            subs = [contains] if isinstance(contains, str) else list(contains)
+            out = [a for a in out if a.matches(subs)]
+        return out
+
     # ── articleDetail ─────────────────────────────────────────────────────────
     def detail(self, arti_id: str) -> Article | None:
         try:

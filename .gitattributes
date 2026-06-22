@@ -1,0 +1,7 @@
+# 텍스트는 저장소에 LF로 정규화(체크아웃은 OS 기본). CRLF 경고 방지.
+* text=auto eol=lf
+
+# 바이너리(혹시 모를 산출물) — 변환 금지
+*.xlsx binary
+*.sqlite binary
+*.pdf binary

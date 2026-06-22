@@ -23,11 +23,8 @@ from .parser import (
 
 
 def _contains_any(a: Article, subs: list[str]) -> bool:
-    parts = [a.title, a.title_en, a.abstract, a.abstract_en, a.categories,
-             "; ".join(a.authors), "; ".join(a.keywords)]
-    parts += [v for v in a.raw.values() if isinstance(v, str)]
-    hay = "\n".join(parts).lower()
-    return any(s.lower() in hay for s in subs)
+    """하위호환 래퍼 — 실제 로직은 Article.matches (REST/OAI 공통)."""
+    return a.matches(subs)
 
 
 class KciOaiClient:

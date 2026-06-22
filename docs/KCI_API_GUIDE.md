@@ -62,6 +62,21 @@ GET {Base}?apiCode=articleSearch&key=<인증키>&title=<검색어>&page=1&displa
 | `sortNm` | X | title / author / pubiYr | 정렬 기준 (제목/저자명/발행일자) |
 | `sortDir` | X | asc / desc | 오름차순/내림차순 |
 
+### 1-1-a. 검색식·쿼리 규칙 ★ (코퍼스 구성 핵심)
+공식 문서 분석 결과 — KCI는 **필드별 단일 키워드 파라미터** 방식이다(ScienceON의 searchQuery·연산자와 다름).
+
+- **연산자 없음**: AND/OR/와일드카드(`*`)/구문(`"…"`)/파이프(`|`) 등 **필드 내 연산자 문서에 없음.**
+  → **여러 변형어 OR 회수는 용어별 개별 호출 후 합집합**이 유일한 방법. (구현: `client.search_terms`)
+- **다중 파라미터 = AND**: `title`+`author`+`keyword`+`abstract`+날짜 등 동시 지정 시 조건이 **누적(AND)** 으로 좁혀짐.
+- **`title` 필수 = 사실상 제목 검색**: `keyword`/`abstract` 파라미터는 있으나 **title이 0-length면 "검색 조건이 없습니다" 에러**
+  → **키워드/초록 단독 검색 불가.** 제목엔 없고 키워드/초록에만 있는 논문은 REST로 회수 어려움
+  (ScienceON의 `KW`/`AB` 필드검색과의 결정적 차이 — 보완은 OAI 전기간 수확 교차).
+- **부분일치 추정**: 예제 `title=컴퓨터` → 3,779건 → 제목 **부분/토큰 매칭**으로 보임(전체일치 아님). ⚠️ 라이브 검증 요.
+- **날짜 의미 구분**: REST `dateFrom/dateTo`=**발행연월(YYYYMM)** — OAI의 datestamp(수정일)와 달리 *발행일* 필터. 코퍼스 연도범위는 REST가 정확.
+
+> ⚠️ **키 발급 후 라이브 검증 필수**: ① `title` 부분일치 vs 토큰화 ② title 필수 하에서 `keyword`/`abstract` 병용 시
+> 키워드 매칭 회수되는가 ③ 띄어쓰기 변형(`경계선지능` vs `경계선 지능`)·영문제목 검색 처리. → 검증 후 본 절 "검증됨" 갱신.
+
 ### 1-2. 응답 구조 (outputData)
 ```
 result/total                                  검색 결과 총 건수

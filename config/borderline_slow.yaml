@@ -1,0 +1,47 @@
+# 경계선지능·느린학습자 코퍼스 수집 설정 (kci collect --config config/borderline_slow.yaml)
+#
+# 검색식 규칙(KCI 문서 확인): KCI articleSearch 는 필드 내 연산자(AND/OR/*/"")가 없다.
+#   → 변형어 OR 회수는 terms 각각을 title 로 개별검색 후 arti_id 합집합(client.search_terms).
+#   → title 필수라 키워드/초록 단독검색 불가(제목 검색이 기본). 상세: docs/KCI_API_GUIDE.md §1-1-a
+#
+# backend: auto → 인증키 있으면 REST(terms 합집합), 없으면 OAI(contains 로컬필터).
+backend: auto
+
+# REST title 변형어(합집합). 띄어쓰기/표기 변형을 넉넉히.
+terms:
+  - 경계선지능
+  - 경계선 지능
+  - 경계선지적기능
+  - 경계선 지적기능
+  - 느린학습자
+  - 느린 학습자
+  - 느린학습
+# REST 발행연도 범위(dateFrom/To=YYYYMM 으로 변환). 전기간이면 생략.
+year_from: 2000
+year_to: 2025
+
+# 결과 후처리(REST·OAI 공통) + OAI 로컬필터. 영문 표기까지 포함.
+contains:
+  - 경계선지능
+  - 경계선 지능
+  - 경계선지적
+  - 경계선 지적
+  - borderline intellectual
+  - borderline intelligence
+  - 느린학습
+  - 느린 학습
+  - slow learner
+
+# OAI 경로(키 없을 때) — datestamp=수정일 기준, 해당 기간 갱신분만(시범 표본)
+oai:
+  set: ARTI
+  metadata_prefix: oai_kci
+  date_from: "2024-01-01"
+  date_until: "2025-06-22"
+
+max_records: 2000
+throttle_sec: 0.4
+
+output:
+  formats: [xlsx, csv, json]
+  dir: output/borderline_slow

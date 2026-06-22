@@ -131,40 +131,42 @@ def kci_harvest(set_spec: str = "ARTI", date_from: str | None = None, date_until
 
 # ── 혼용 수집 + 내보내기 ─────────────────────────────────────────────────────────
 @mcp.tool()
-def kci_collect(title: str | None = None, set_spec: str = "ARTI",
+def kci_collect(title: str | None = None, terms: list[str] | None = None, set_spec: str = "ARTI",
+                year_from: int | None = None, year_to: int | None = None,
                 date_from: str | None = None, date_until: str | None = None,
                 contains: list[str] | None = None, formats: list[str] | None = None,
                 max_records: int = 500, out_dir: str | None = None, name: str | None = None) -> dict:
     """[혼용] 요청 성격·키 유무로 REST↔OAI 자동 선택 후 수집 → 파일 저장.
 
-    - title 있고 인증키 보유 → REST 검색
-    - title 있고 키 없음 → OAI 수확(날짜범위) + title 로컬 필터
-    - title 없음 → OAI 세트/날짜범위 전수 수확
-    OAI 경로에서 date_from/until(YYYY-MM-DD) 권장. out_dir 미지정 시 홈의 kci-output/.
+    - terms/title 있고 인증키 보유 → REST 변형어 합집합 검색(year_from/to·contains 적용)
+    - terms/title 있고 키 없음 → OAI 수확(date_from/until) + terms/contains 로컬 필터
+    - terms/title 없음 → OAI 세트/날짜범위 전수 수확
+    out_dir 미지정 시 홈의 kci-output/. OAI 날짜는 YYYY-MM-DD, REST 연도는 정수.
     """
     from .exporters import export
-    backend, reason = decide_backend(keyword=title)
-    used = backend
+    kws = [t for t in (terms or ([title] if title else [])) if t]
+    backend, reason = decide_backend(keyword=(kws[0] if kws else None))
     try:
         if backend == "rest":
             from .client import KciClient, KciError
             try:
-                recs = KciClient().search(title, max_records=max_records, display=100)
+                recs = KciClient().search_terms(kws, year_from=year_from, year_to=year_to,
+                                                max_records=max_records, contains=contains)
             except KciError as e:
                 return {"error": str(e), "backend": backend, "reason": reason}
         else:
-            subs = contains or ([title] if title else None)
+            subs = contains or (kws or None)
             recs = KciOaiClient().list_records(
                 set_spec=set_spec, metadata_prefix="oai_kci",
                 date_from=date_from, date_until=date_until,
                 max_records=max_records, contains=subs)
     except OaiError as e:
-        return {"error": str(e), "backend": used, "reason": reason}
+        return {"error": str(e), "backend": backend, "reason": reason}
     fmts = formats or ["xlsx", "csv", "json"]
-    nm = (name or f"kci_{title or set_spec}").replace(" ", "_")[:60]
+    nm = (name or f"kci_{(kws[0] if kws else set_spec)}").replace(" ", "_")[:60]
     base = out_dir or str(Path.home() / "kci-output")
     paths = export(recs, fmts, base, nm)
-    return {"count": len(recs), "backend": used, "reason": reason, "files": paths}
+    return {"count": len(recs), "backend": backend, "reason": reason, "files": paths}
 
 
 def main() -> None:

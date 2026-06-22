@@ -104,26 +104,29 @@ def cmd_collect(args) -> int:
     from .router import decide_backend
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    title = cfg.get("title")
+    terms = cfg.get("terms") or ([cfg["title"]] if cfg.get("title") else [])
+    contains = cfg.get("contains")
     oai = cfg.get("oai", {})
     forced = cfg.get("backend", "auto")
-    backend, reason = decide_backend(keyword=title)
+    backend, reason = decide_backend(keyword=(terms[0] if terms else None))
     if forced in ("rest", "oai"):
         backend, reason = forced, f"설정 강제: {forced}"
-    print(f"backend={backend} ({reason})")
+    print(f"backend={backend} ({reason}) | terms={terms}")
     max_records = int(cfg.get("max_records", 2000))
+    throttle = float(cfg.get("throttle_sec", 0.5))
     try:
         if backend == "rest":
             from .client import KciClient, KciError
             try:
-                recs = KciClient(throttle=float(cfg.get("throttle_sec", 0.5))).search(
-                    title, max_records=max_records, display=100)
+                recs = KciClient(throttle=throttle).search_terms(
+                    terms, year_from=cfg.get("year_from"), year_to=cfg.get("year_to"),
+                    max_records=max_records, contains=contains)
             except KciError as e:
                 print("오류:", e)
                 return 1
         else:
-            subs = oai.get("contains") or ([title] if title else None)
-            recs = KciOaiClient(throttle=float(cfg.get("throttle_sec", 0.5))).list_records(
+            subs = contains or oai.get("contains") or (terms or None)
+            recs = KciOaiClient(throttle=throttle).list_records(
                 set_spec=oai.get("set", "ARTI"), metadata_prefix=oai.get("metadata_prefix", "oai_kci"),
                 date_from=oai.get("date_from"), date_until=oai.get("date_until"),
                 max_records=max_records, contains=subs)

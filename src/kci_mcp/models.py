@@ -53,3 +53,17 @@ class Article:
 
     def dedup_key(self):
         return self.arti_id or self.doi or (self.title, self.pub_year)
+
+    def haystack(self) -> str:
+        """부분일치 필터용 전체 텍스트(소문자)."""
+        parts = [self.title, self.title_en, self.abstract, self.abstract_en, self.categories,
+                 "; ".join(self.authors), "; ".join(self.keywords)]
+        parts += [v for v in self.raw.values() if isinstance(v, str)]
+        return "\n".join(parts).lower()
+
+    def matches(self, subs) -> bool:
+        """subs(문자열 또는 목록) 중 하나라도 부분일치하면 True (대소문자 무시)."""
+        if isinstance(subs, str):
+            subs = [subs]
+        hay = self.haystack()
+        return any(s.lower() in hay for s in subs)
