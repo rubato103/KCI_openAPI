@@ -1,0 +1,70 @@
+name: Build self-contained .mcpb (binary, per-OS)
+
+# 자체완결(Python·uv 불필요) PyInstaller 바이너리를 OS별로 빌드해 .mcpb 로 패키징,
+# 해당 릴리스에 첨부. 릴리스 게시 시 자동 + 수동 dispatch(태그 지정) 지원.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "첨부할 릴리스 태그 (예: v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: kci-openapi-mcp-win-x64.mcpb
+          - os: macos-latest
+            asset: kci-openapi-mcp-macos-arm64.mcpb
+          - os: ubuntu-latest
+            asset: kci-openapi-mcp-linux-x64.mcpb
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install .
+
+      - name: Build self-contained binary
+        run: |
+          pyinstaller --onefile --console --name kci-mcp \
+            --collect-submodules mcp.server --collect-data mcp \
+            --collect-all pydantic --collect-all pydantic_core \
+            --collect-all truststore --collect-all certifi --collect-all openpyxl \
+            --collect-all yaml --collect-all dotenv --collect-all requests --collect-all anyio \
+            --collect-all kci_mcp --exclude-module mcp.cli --exclude-module typer \
+            --hidden-import mcp.server.fastmcp \
+            packaging/binary/entry.py
+
+      - name: Stage bundle
+        run: |
+          mkdir -p bundle/server
+          cp packaging/binary/manifest.json bundle/manifest.json
+          cp dist/kci-mcp* bundle/server/
+
+      - name: Pack .mcpb
+        run: npx -y @anthropic-ai/mcpb@latest pack bundle "${{ matrix.asset }}"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.event.release.tag_name }}"
+          gh release upload "$TAG" "${{ matrix.asset }}" --clobber

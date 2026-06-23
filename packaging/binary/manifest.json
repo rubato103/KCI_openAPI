@@ -1,0 +1,59 @@
+{
+  "manifest_version": "0.3",
+  "name": "kci-openapi-mcp",
+  "display_name": "KCI 수집기 (kci-openapi-mcp)",
+  "version": "0.1.0",
+  "description": "한국연구재단 KCI(Korea Citation Index) 문헌·인용지수 검색·수집기 — REST Open API + OAI-PMH(무인증) 혼용. 자체완결 바이너리(Python·uv 불필요).",
+  "author": { "name": "Yeondong Yang", "url": "https://github.com/rubato103/KCI_openAPI" },
+  "homepage": "https://github.com/rubato103/KCI_openAPI",
+  "documentation": "https://github.com/rubato103/KCI_openAPI#readme",
+  "license": "MIT",
+  "keywords": ["kci", "nrf", "openapi", "oai-pmh", "academic", "literature", "metadata", "citation"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/kci-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/kci-mcp",
+      "args": [],
+      "env": {
+        "KCI_API_KEY": "${user_config.api_key}",
+        "KCI_OS_TRUST": "${user_config.os_trust}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/kci-mcp.exe"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "KCI 인증키 (선택)",
+      "description": "open.kci.go.kr 발급 REST Open API 인증키. 비워두면 OAI-PMH 무인증 수확(kci_harvest)만 사용 가능.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "os_trust": {
+      "type": "string",
+      "title": "OS 신뢰저장소 TLS (교육망/사내망)",
+      "description": "교육망·사내망 SSL 인터셉션 환경이면 1(기본). 1=OS 신뢰저장소 사용, 0=비활성.",
+      "required": false,
+      "default": "1"
+    }
+  },
+  "tools": [
+    { "name": "kci_status", "description": "연결 점검 — OAI(무인증) Identify + REST 인증키 보유 여부" },
+    { "name": "kci_search", "description": "[REST] 논문 검색 — title 필수 + author/journal/keyword/abstract/doi/발행연월 필터 (인증키 필요)" },
+    { "name": "kci_detail", "description": "[REST] Control Number(ART…)로 논문 상세·초록·키워드·저자 (인증키 필요)" },
+    { "name": "kci_references", "description": "[REST] 제목 검색어 매칭 논문들의 참고문헌 원형 수집 (인증키 필요)" },
+    { "name": "kci_journal_citation", "description": "[REST] 저널 인용지수 — 연도 목록 / journal_id 상세(등재이력·연도별 IF) (인증키 필요)" },
+    { "name": "kci_harvest", "description": "[OAI-PMH·무인증] 세트(ARTI/ARTI_CONF/JOUR)+날짜범위 대량 수확, contains 로컬 필터" },
+    { "name": "kci_collect", "description": "[혼용 라우터] 키 유무·요청 성격으로 REST↔OAI 자동 선택 후 수집 → xlsx/csv/json/sqlite 저장" }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["win32", "darwin", "linux"]
+  }
+}
