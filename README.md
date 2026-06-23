@@ -4,7 +4,7 @@
 
 한국연구재단(NRF) **KCI(Korea Citation Index)** 문헌·인용지수 검색·수집 **MCP 서버 + CLI**.
 **REST Open API**(키워드 검색)와 **OAI-PMH**(무인증 대량 수확)를 **혼용**한다.
-자매 프로젝트 [scienceon-mcp](../scienceon)와 동일 아키텍처.
+자매 프로젝트 scienceon-mcp(KISTI ScienceON)와 동일 아키텍처.
 
 ## 무엇을 하나
 - 논문 검색·상세 (서지 · **국문/영문 초록** · 키워드 · 저자/소속)
@@ -22,8 +22,9 @@
 규격: [docs/KCI_API_GUIDE.md](docs/KCI_API_GUIDE.md) · [docs/KCI_OAI_PMH_GUIDE.md](docs/KCI_OAI_PMH_GUIDE.md) · 설계: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## 현재 상태
-- ✅ `src/kci_mcp/` 구현 완료 · **REST/OAI 라이브 검증 완료** · pytest 22건 + MCP 프로토콜 스모크 통과
-- ✅ Claude Desktop(`mcpb/manifest.json`) + Claude Code(`.mcp.json`) + 공식 레지스트리(`server.json`) 지원
+- ✅ 구현·**REST/OAI 라이브 검증** 완료 · pytest 24 + MCP 프로토콜 스모크 · 도구 annotations
+- ✅ **공식 MCP 레지스트리 발행됨**: `io.github.rubato103/kci-openapi-mcp` (registry.modelcontextprotocol.io 검색 가능)
+- ✅ Claude Desktop **자체완결 `.mcpb`**(win/mac/linux, Python·uv 불필요) + Claude Code `.mcp.json`
 
 ## MCP 클라이언트에 등록
 
@@ -31,7 +32,7 @@
 프로젝트 루트의 `.mcp.json` 이 자동 인식된다(키는 환경변수로 주입):
 ```bash
 export KCI_API_KEY=<발급키>   # 선택 — 없으면 OAI 무인증 도구만 동작
-# 또는 어디서나(공개 후):
+# 또는 어디서나:
 claude mcp add kci --env KCI_API_KEY=$KCI_API_KEY -- uvx --from git+https://github.com/rubato103/KCI_openAPI kci-mcp
 ```
 
@@ -52,10 +53,11 @@ claude mcp add kci --env KCI_API_KEY=$KCI_API_KEY -- uvx --from git+https://gith
 } } }
 ```
 
-### PyPI / uvx (공개 후)
+### uvx (저장소에서 직접 실행)
 ```bash
-uvx kci-openapi-mcp        # MCP 서버(stdio)
+uvx --from git+https://github.com/rubato103/KCI_openAPI kci-mcp   # MCP 서버(stdio)
 ```
+> PyPI에는 게시하지 않음 — 레지스트리 배포는 `.mcpb`(GitHub Release) 방식.
 
 ## CLI (로컬 개발)
 ```bash
