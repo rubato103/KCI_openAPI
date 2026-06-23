@@ -33,8 +33,14 @@ def _safe(fn):
     return wrapper
 
 
+# 도구 안전성 힌트(MCP annotations) — 디렉터리 심사·클라이언트 표시에 사용.
+# 전부 외부 API 조회(openWorld). collect 만 파일 생성(쓰기, 비파괴).
+_READ = {"readOnlyHint": True, "openWorldHint": True}
+_WRITE = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}
+
+
 # ── 상태 ──────────────────────────────────────────────────────────────────────
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_status() -> dict:
     """연결 점검 — OAI(무인증) Identify + REST 인증키 보유 여부."""
@@ -51,7 +57,7 @@ def kci_status() -> dict:
 
 
 # ── REST ─────────────────────────────────────────────────────────────────────
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_search(title: str, author: str | None = None, journal: str | None = None,
                keyword: str | None = None, abstract: str | None = None, doi: str | None = None,
@@ -79,7 +85,7 @@ def kci_search(title: str, author: str | None = None, journal: str | None = None
     return {"count": len(recs), "records": [r.to_row() for r in recs]}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_detail(arti_id: str) -> dict:
     """[REST] Control Number(ART…)로 논문 상세·초록·키워드·저자 조회. 인증키 필요."""
@@ -93,7 +99,7 @@ def kci_detail(arti_id: str) -> dict:
     return r.to_row() if r else {"error": "결과 없음"}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_references(title: str, author: str | None = None, pub_year: str | None = None,
                   rows: int = 50) -> dict:
@@ -109,7 +115,7 @@ def kci_references(title: str, author: str | None = None, pub_year: str | None =
     return {"count": len(refs), "references": refs}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_journal_citation(year: int | None = None, years: int = 2, journal_id: str | None = None,
                         rows: int = 50) -> dict:
@@ -131,7 +137,7 @@ def kci_journal_citation(year: int | None = None, years: int = 2, journal_id: st
 
 
 # ── OAI-PMH (무인증) ───────────────────────────────────────────────────────────
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 @_safe
 def kci_harvest(set_spec: str = "ARTI", date_from: str | None = None, date_until: str | None = None,
                 metadata_prefix: str = "oai_kci", contains: list[str] | None = None,
@@ -153,7 +159,7 @@ def kci_harvest(set_spec: str = "ARTI", date_from: str | None = None, date_until
 
 
 # ── 혼용 수집 + 내보내기 ─────────────────────────────────────────────────────────
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 @_safe
 def kci_collect(title: str | None = None, terms: list[str] | None = None, set_spec: str = "ARTI",
                 year_from: int | None = None, year_to: int | None = None,
