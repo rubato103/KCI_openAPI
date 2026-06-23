@@ -24,12 +24,14 @@
 | 명확한 도구 설명 | ✅ | 각 도구 description에 REST/OAI·인증 필요여부 명시 |
 | 패키징 검증 | ✅ | mcpb manifest 공식 검증 통과, server.json 레지스트리 스키마 통과 |
 
-### ⚠️ 심사 전 검토 필요(정직한 한계)
-- **런타임 전제: `uv` 필요** — 현 `.mcpb`는 `uvx --from git+…` 로 실행하므로 호스트에 `uv`가 있어야 한다.
-  리뷰는 클린 머신에서 진행될 수 있어, uv 미설치 시 기동 실패 가능. 대응 옵션:
-  1. (간단) manifest/문서에 `uv` 전제를 명시하고 신청 — 소규모/연구용엔 충분.
-  2. (견고) **자체완결 `.mcpb`** 빌드 — Python 런타임+의존성을 번들(서버 코드 동봉). 추가 작업 필요.
-  → 디렉터리 정식 등재를 노린다면 옵션 2 권장. 필요 시 별도 작업으로 진행.
+### 런타임 — ✅ 자체완결 `.mcpb` 제공 (uv·Python 불필요)
+- Claude Desktop은 **Node.js만 번들**하고 Python은 안 함 → uv/python 타입은 시스템 Python 필요.
+- 그래서 **PyInstaller 단일 실행파일**을 OS별로 빌드해 `server.type:"binary"` `.mcpb` 로 제공한다.
+  - 산출물(릴리스 자산): `kci-openapi-mcp-win-x64.mcpb` · `…-macos-arm64.mcpb` · `…-linux-x64.mcpb`
+  - 빌드 자동화: `.github/workflows/build-mcpb.yml`(win/mac/linux 매트릭스) — `packaging/binary/{manifest.json,entry.py}`
+  - **클린 머신(uv·Python 미설치)에서 기동 검증 완료**(Windows): MCP 프로토콜 handshake + OAI 실호출.
+- 심사 제출 시 **자체완결 `.mcpb`** 를 사용하면 리뷰어 클린 환경 기동 실패 리스크가 없다.
+  - (참고) 경량 `kci-openapi-mcp.mcpb`(uvx-from-git)는 `uv` 필요 — 디렉터리 제출엔 자체완결본 권장.
 
 ## 신청 절차
 1. Anthropic **커넥터/익스텐션 디렉터리 제출 폼**으로 신청(Anthropic 계정·신원 필요 — 메인테이너가 직접).

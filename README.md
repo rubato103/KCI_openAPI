@@ -36,8 +36,14 @@ claude mcp add kci --env KCI_API_KEY=$KCI_API_KEY -- uvx --from git+https://gith
 ```
 
 ### Claude Desktop
-- **레지스트리/원클릭**: 공식 MCP 레지스트리에서 검색해 설치(공개 후).
-- **수동**: `%APPDATA%/Claude/claude_desktop_config.json` 에 추가
+**(권장) 자체완결 `.mcpb` — Python·uv 불필요**, 더블클릭 설치:
+[릴리스](https://github.com/rubato103/KCI_openAPI/releases/latest)에서 OS에 맞는 파일 다운로드 →
+더블클릭(또는 Settings → Extensions → Install) → `KCI_API_KEY` 입력(선택).
+- Windows: `kci-openapi-mcp-win-x64.mcpb` / macOS: `…-macos-arm64.mcpb` / Linux: `…-linux-x64.mcpb`
+
+**(경량) `kci-openapi-mcp.mcpb`** — 크기 작지만 실행에 `uv` 필요(`uvx --from git+…`).
+
+**(수동 config)** `%APPDATA%/Claude/claude_desktop_config.json`:
 ```json
 { "mcpServers": { "kci": {
   "command": "uvx",
