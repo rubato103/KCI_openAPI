@@ -144,6 +144,11 @@ def cmd_collect(args) -> int:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     p = argparse.ArgumentParser(prog="kci", description="KCI 문헌 메타데이터 수집기 (REST + OAI-PMH)")
     sub = p.add_subparsers(dest="cmd", required=True)
 

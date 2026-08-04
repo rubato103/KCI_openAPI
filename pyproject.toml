@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Text Processing :: Indexing",
 ]
 dependencies = [
-    "mcp>=1.2.0",
+    "mcp>=1.2.0,<2",  # 상한 필수 — mcp 2.0 에서 mcp.server.fastmcp 제거됨
     "requests>=2.31.0",
     "openpyxl>=3.1.0",
     "python-dotenv>=1.0.0",

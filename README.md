@@ -25,6 +25,7 @@
 - ✅ 구현·**REST/OAI 라이브 검증** 완료 · pytest 24 + MCP 프로토콜 스모크 · 도구 annotations
 - ✅ **공식 MCP 레지스트리 발행됨**: `io.github.rubato103/kci-openapi-mcp` (registry.modelcontextprotocol.io 검색 가능)
 - ✅ Claude Desktop **자체완결 `.mcpb`**(win/mac/linux, Python·uv 불필요) + Claude Code `.mcp.json`
+- ⚠️ `mcp` SDK는 **1.x 고정**(`mcp>=1.2.0,<2`) — 2.0 에서 `mcp.server.fastmcp` 가 제거되어 상한 없이는 기동 실패
 
 ## MCP 클라이언트에 등록
 
@@ -71,9 +72,11 @@ kci collect --config config/borderline_slow.yaml
 ### MCP 도구 (7종)
 `kci_status` · `kci_search` · `kci_detail` · `kci_references` · `kci_journal_citation` · `kci_harvest` · `kci_collect`
 `kci_collect` 은 요청 성격·키 유무로 REST↔OAI 자동 선택.
+> 상세 조회 인자는 `arti_id`(KCI Control Number, 예: `ART003047608`).
 
 ## 자격증명 / 네트워크
 - `KCI_API_KEY` (open.kci.go.kr 발급) → `.env`(gitignore) 또는 OS 환경변수. **커밋·로그 금지.** OAI는 키 불필요.
+- KCI 방화벽은 **User-Agent 필터**를 건다(`curl` 기본 UA는 400 차단 안내페이지). 본 서버는 `requests` 로 호출하므로 정상.
 - 교육망/사내망 **SSL 인터셉션**은 `truststore`로 OS 신뢰저장소를 사용해 통과(검증 유지). `KCI_OS_TRUST=0`로 비활성.
 
 ## 라이선스

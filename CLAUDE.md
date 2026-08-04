@@ -55,7 +55,7 @@ config/         # 검색 설정 템플릿 (search.example.yaml)
 |------|-----|------|
 | `kci_status` | (소량 articleSearch / OAI Identify) | 인증키 유효성·연결 점검 |
 | `kci_search` | articleSearch | 논문 검색 — title 필수 + 필터(author/journal/keyword/abstract/doi/연월·등록·수정일자) + 페이징 자동 |
-| `kci_detail` | articleDetail | Control Number(id)로 상세·초록·키워드·저자 상세 |
+| `kci_detail` | articleDetail | Control Number(**`arti_id`**, 예 `ART003047608`)로 상세·초록·키워드·저자 상세 |
 | `kci_references` | referenceSearch | 제목 검색어로 참고문헌 원형 수집 |
 | `kci_journal_citation` | citation / citationDetail | 저널 인용지수(연도) / 상세(등재이력·연도별 IF) |
 | `kci_harvest` | OAI-PMH ListRecords | **무인증** 세트+날짜범위 대량 수확(oai_kci, resumptionToken 자동) |
@@ -87,14 +87,21 @@ config/         # 검색 설정 템플릿 (search.example.yaml)
 - 원본 XML 필드는 `raw`로 보존. 커밋 메시지 한국어, Claude 서명 금지.
 - **라이브 검증 우선(추정 금지)** — 인증키 발급 후 각 API 소량 호출로 응답 스키마 확정 → 가이드 "검증됨" 갱신.
 
-## 8. 상태 (2026-06-22)
+## 8. 상태 (2026-08-04)
 - ✅ 공식 PDF 2종 → `reference/`(원본) + `docs/`(복구 명세 2종) 마이그레이션 완료.
 - ✅ **`src/kci_mcp/` 구현 완료** — config/models/parser/oai_client/client/router/exporters/server/cli.
-  pyproject + 외부 venv(`C:/Users/user/.venvs/kci-openapi-mcp`) + `.env.example` + `config/search.example.yaml`.
-- ✅ **OAI-PMH 라이브 검증 완료**(무인증): Identify/ListSets/Formats/ListRecords(oai_kci·oai_dc)/GetRecord +
-  `학부모` 로컬필터 + exporters 동작 확인. 검증 메모 → [docs/KCI_OAI_PMH_GUIDE.md](docs/KCI_OAI_PMH_GUIDE.md) §10.
-- ⏭️ 다음: ① KCI 인증키 발급 → **REST 라이브 검증**(client/search/detail/references/citation) →
-  ② `kci_collect` 혼용 교차검증·초록 백필을 학부모 코퍼스에 적용 → ③ tests/CI·README·mcpb 패키징.
+- ✅ **OAI-PMH 라이브 검증 완료**(무인증): Identify/ListSets/Formats/ListRecords(oai_kci·oai_dc)/GetRecord.
+  검증 메모 → [docs/KCI_OAI_PMH_GUIDE.md](docs/KCI_OAI_PMH_GUIDE.md) §10.
+- ✅ **REST 라이브 검증 완료 (2026-08-04)** — MCP 프로토콜(stdio)로 7개 도구 전수 실호출 성공:
+  `kci_status` / `kci_search`(초록 포함) / `kci_detail`(`arti_id=ART003047608`, `사회과학 > 교육학`) /
+  `kci_references` / `kci_journal_citation`(2023년 50저널, `impactFactor`·`exImpactFactor`·`selfCitedRate`) /
+  `kci_harvest` / `kci_collect`(라우터 `rest` 선택 → xlsx·json 산출). → §6 "라이브 미검증" 단서 해소.
+- ⚠️ **`mcp` SDK 상한 필수** — 2.0.0 에서 `mcp.server.fastmcp` 제거(→ `mcp.server.MCPServer` 체계).
+  상한 없는 `mcp>=1.2.0` 은 2.0 으로 해석되어 `uvx --from git+…` 기동이 `ModuleNotFoundError` 로 실패했다.
+  `pyproject.toml`·`uv.lock` 에 `>=1.2.0,<2` 고정(해결). `.mcpb` 번들·로컬 `.venv` 는 영향 없었음.
+- ⚠️ **KCI 방화벽은 User-Agent 필터** — `curl` 기본 UA 는 HTTP 400 "차단" 안내페이지 반환(해외 IP 문구이나
+  실제 조건은 UA). `requests` UA 는 200. 즉 클라우드/원격 환경에서도 REST·OAI 모두 정상 동작한다.
+- ⏭️ 다음: ① `kci_collect` 혼용 교차검증·초록 백필을 학부모 코퍼스에 적용 → ② `.mcpb` 재빌드·릴리스 태그 갱신.
 - ⚠️ **교육망(학교/교육청)·사내망 SSL 인터셉션** 대응: `truststore` 의존성으로 **OS 신뢰저장소** 사용
-  (검증 끄지 않음). `KCI_OS_TRUST=0` 로 비활성 가능. 라이브 검증은 서울 초등학교 교실망에서 통과 확인.
+  (검증 끄지 않음). `KCI_OS_TRUST=0` 로 비활성 가능.
 - 🔗 연계 연구: `투고논문/학부모 학술동향` (ScienceON 621편 STM 분석) — KCI는 초록 백필·완전성 교차검증원.

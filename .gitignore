@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Claude Code 로컬 설정 (KCI_API_KEY 등 비밀 포함 가능)
+.claude/settings.local.json
+
 # 공식 원본 매뉴얼 (비공개)
 reference/
 
