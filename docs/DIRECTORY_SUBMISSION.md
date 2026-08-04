@@ -10,7 +10,7 @@
 ## 1. Basic information 〔기본정보〕
 - **Extension name (id):** `kci-openapi-mcp`
 - **Display name:** KCI Citation Search (한국학술지인용색인)
-- **Version:** 0.1.1
+- **Version:** 0.1.2
 - **Category:** Research / Academic & Reference / Data
 - **Author / Publisher:** Yeondong Yang (GitHub: rubato103)
 - **Contact email:** rubato103@gmail.com

@@ -1,14 +1,17 @@
 name: Build self-contained .mcpb (binary, per-OS)
 
 # 자체완결(Python·uv 불필요) PyInstaller 바이너리를 OS별로 빌드해 .mcpb 로 패키징,
-# 해당 릴리스에 첨부. 릴리스 게시 시 자동 + 수동 dispatch(태그 지정) 지원.
+# 지정한 기존 릴리스에 첨부하는 **수동 보정용** 워크플로.
+#
+# ⚠️ `release: published` 트리거는 제거했다 — 릴리스를 GITHUB_TOKEN(publish-mcp.yml)이 생성하면
+#    재귀 방지 규칙에 따라 그 이벤트가 다른 워크플로를 트리거하지 않아 실제로 발화하지 않았다.
+#    정규 경로는 `publish-mcp.yml`(태그 푸시 → 바이너리 빌드 → 릴리스 첨부 → 레지스트리 발행)이고,
+#    이 워크플로는 과거 릴리스에 자산을 덧붙일 때만 수동 실행한다.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "첨부할 릴리스 태그 (예: v0.1.0)"
+        description: "첨부할 릴리스 태그 (예: v0.1.1)"
         required: true
 
 permissions:

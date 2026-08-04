@@ -1,13 +1,77 @@
 name: Publish to MCP Registry (.mcpb)
 
-# 버전 태그 푸시 시: .mcpb 빌드 → GitHub Release 첨부 → server.json 에 sha256 주입 →
-# 공식 MCP 레지스트리에 GitHub OIDC 로 발행. PyPI 불필요, 시크릿 0개.
+# 버전 태그 푸시 시 한 워크플로에서 전부 처리:
+#   ① OS별 자체완결 바이너리(.mcpb) 빌드 → ② 경량 .mcpb 팩 + sha256 주입 →
+#   ③ GitHub Release 생성(모든 자산 첨부) → ④ 공식 MCP 레지스트리 발행(GitHub OIDC).
+# ⚠️ GITHUB_TOKEN 으로 만든 release 는 다른 워크플로의 `release: published` 를 트리거하지 않는다.
+#    (재귀 방지) → 바이너리 빌드를 별도 워크플로에 두지 않고 이 안에서 선행 job 으로 수행한다.
 on:
   push:
     tags: ["v*"]
 
 jobs:
+  binaries:
+    name: Build self-contained .mcpb (${{ matrix.asset }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: kci-openapi-mcp-win-x64.mcpb
+          - os: macos-latest
+            asset: kci-openapi-mcp-macos-arm64.mcpb
+          - os: ubuntu-latest
+            asset: kci-openapi-mcp-linux-x64.mcpb
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install .
+
+      - name: Assert mcp 1.x (fastmcp 존재)
+        run: |
+          python -c "import mcp.server.fastmcp; print('mcp.server.fastmcp OK')"
+
+      - name: Build self-contained binary
+        run: |
+          pyinstaller --onefile --console --name kci-mcp \
+            --collect-submodules mcp.server --collect-data mcp \
+            --collect-all pydantic --collect-all pydantic_core \
+            --collect-all truststore --collect-all certifi --collect-all openpyxl \
+            --collect-all yaml --collect-all dotenv --collect-all requests --collect-all anyio \
+            --collect-all kci_mcp --exclude-module mcp.cli --exclude-module typer \
+            --hidden-import mcp.server.fastmcp \
+            packaging/binary/entry.py
+
+      - name: Stage bundle
+        run: |
+          mkdir -p bundle/server
+          cp packaging/binary/manifest.json bundle/manifest.json
+          cp dist/kci-mcp* bundle/server/
+
+      - name: Pack .mcpb
+        run: npx -y @anthropic-ai/mcpb@latest pack bundle "${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
   publish:
+    name: Release + MCP Registry 발행
+    needs: binaries
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # mcp-publisher github-oidc 인증
@@ -19,30 +83,40 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Build .mcpb (manifest 패키징)
+      - name: 경량 .mcpb 팩 (manifest 패키징)
         run: npx -y @anthropic-ai/mcpb@latest pack mcpb kci-openapi-mcp.mcpb
 
-      - name: Compute sha256 → server.json 주입
+      - name: OS별 바이너리 .mcpb 내려받기
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: 자산 확인
+        run: ls -la kci-openapi-mcp.mcpb binaries/
+
+      - name: sha256 계산 → server.json 주입
         run: |
           SHA=$(sha256sum kci-openapi-mcp.mcpb | cut -d' ' -f1)
           echo "sha256=$SHA"
           sed -i "s/__MCPB_SHA256__/$SHA/" server.json
           grep -q "$SHA" server.json && echo "server.json 주입 확인"
 
-      - name: GitHub Release 생성 + .mcpb 첨부
+      - name: GitHub Release 생성 + 전체 자산 첨부
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" kci-openapi-mcp.mcpb \
+          gh release create "${{ github.ref_name }}" \
+            kci-openapi-mcp.mcpb binaries/*.mcpb \
             --title "${{ github.ref_name }}" \
-            --notes "KCI(Korea Citation Index) MCP ${{ github.ref_name }} — Claude Desktop .mcpb 번들"
+            --notes "KCI(Korea Citation Index) MCP ${{ github.ref_name }} — Claude Desktop .mcpb 번들 (경량 + OS별 자체완결)"
 
-      - name: Install mcp-publisher
+      - name: mcp-publisher 설치
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
-      - name: Authenticate to MCP Registry (GitHub OIDC)
+      - name: MCP 레지스트리 인증 (GitHub OIDC)
         run: ./mcp-publisher login github-oidc
 
-      - name: Publish to MCP Registry
+      - name: MCP 레지스트리 발행
         run: ./mcp-publisher publish
