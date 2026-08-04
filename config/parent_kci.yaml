@@ -1,0 +1,33 @@
+# 학부모 코퍼스 수집 설정 (kci collect --config config/parent_kci.yaml)
+#
+# ScienceON(KISTI) '학부모 학술동향' 621편 코퍼스에 대한 KCI 측 교차검증·초록 백필용.
+# 검색어는 '학부모' 단독 — KCI title 검색이 부분일치라 학부모참여/학부모교육/학부모회 등
+# 복합어가 함께 잡힌다. 변형어를 넓히면 ScienceON 코퍼스와 경계가 어긋나 완전성 비교가
+# 흐려지므로 기준선을 단일어로 고정한다. 연도 제한 없음(전기간) — 필터는 분석 단계에서.
+#
+# ⚠️ 검색 축이 둘이다 — client.search_terms 의 기본 fields=("title","keyword") 로
+#    제목검색과 키워드검색을 **각각 수행해 arti_id 합집합**을 만든다(제목엔 없고 저자키워드에만
+#    '학부모'가 있는 논문까지 회수). 따라서 코퍼스 크기는 제목축 단독 총계보다 크다.
+# REST total 실측 (2026-08-04, articleSearch, 검색어 '학부모'):
+#   title=4,764건 · keyword=4,795건 · abstract=단독검색 불가(total 없음)
+#   → 합집합 상한 9,559건. max_records 는 절단이 일어나지 않도록 그 위로 잡는다.
+backend: auto
+
+terms:
+  - 학부모
+
+# year_from/year_to 생략 = 전기간
+
+oai:
+  set: ARTI
+  metadata_prefix: oai_kci
+  date_from: "2013-01-01"
+  date_until: "2026-08-04"
+  contains: ["학부모"]
+
+max_records: 12000
+throttle_sec: 0.4
+
+output:
+  formats: [xlsx, csv, json]
+  dir: output/parent_kci

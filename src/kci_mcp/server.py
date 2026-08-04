@@ -52,7 +52,8 @@ def kci_status() -> dict:
     if not info["has_api_key"]:
         info["rest"] = {"ok": False, "note": "KCI_API_KEY 미설정 — REST 도구 비활성(OAI는 사용 가능)"}
     else:
-        info["rest"] = {"ok": True, "note": "인증키 보유 — REST 도구 사용 가능(라이브 미검증)"}
+        info["rest"] = {"ok": True,
+                        "note": "인증키 보유 — REST 도구 사용 가능(2026-08-04 7개 도구 라이브 검증 완료)"}
     return info
 
 
@@ -66,6 +67,11 @@ def kci_search(title: str, author: str | None = None, journal: str | None = None
     """[REST] 논문 검색 — title 필수 + 선택 필터. 인증키 필요.
 
     date_from/date_to: 발행연월 YYYYMM. rows: 반환 건수(최대 100).
+    반환값의 total 은 KCI 가 보고한 전체 건수이고, truncated=true 면 rows 상한에 잘린 것이다.
+
+    ⚠️ articleSearch 응답에는 **저자 키워드·ISSN·UCI 가 아예 없다**(원본 XML 에 필드 부재).
+       keyword= 로 검색은 되지만 결과에는 실리지 않는 비대칭이므로, 결과의 빈 keywords 를
+       '키워드 없는 논문'으로 오독하면 안 된다. 키워드·ISSN 이 필요하면 kci_detail 로 건별 보강할 것.
     인증키가 없으면 kci_harvest(OAI 무인증) 사용을 안내한다.
     """
     if get_api_key() is None:
@@ -78,17 +84,29 @@ def kci_search(title: str, author: str | None = None, journal: str | None = None
         "abstract": abstract, "doi": doi, "dateFrom": date_from, "dateTo": date_to,
     }.items() if v}
     try:
-        recs = KciClient().search(title, max_records=min(rows, 100), display=min(rows, 100), **filters)
+        recs, meta = KciClient().search_meta(title, max_records=min(rows, 100),
+                                             display=min(rows, 100), **filters)
     except KciError as e:
         return {"error": str(e)}
     recs = recs[:rows]
-    return {"count": len(recs), "records": [r.to_row() for r in recs]}
+    out = {"count": len(recs), "total": meta["total"],
+           "truncated": bool(meta["total"]) and len(recs) < meta["total"],
+           "note": "keywords/issn/uci 는 articleSearch 미제공 — kci_detail 로 보강",
+           "records": [r.to_row() for r in recs]}
+    if out["truncated"]:
+        out["warning"] = (f"전체 {meta['total']}건 중 {len(recs)}건만 반환 — rows 상한(최대 100). "
+                          f"전건 수집은 kci_collect 를 사용하세요.")
+    return out
 
 
 @mcp.tool(annotations=_READ)
 @_safe
 def kci_detail(arti_id: str) -> dict:
-    """[REST] Control Number(ART…)로 논문 상세·초록·키워드·저자 조회. 인증키 필요."""
+    """[REST] Control Number(ART…)로 논문 상세 조회. 인증키 필요.
+
+    **저자 키워드·ISSN·등재여부·FWCI·저자 소속·참고문헌의 유일한 출처**다
+    (articleSearch 응답에는 이 필드들이 없다). 검색 결과의 키워드 결측은 이 도구로 보강한다.
+    """
     if get_api_key() is None:
         return {"error": "KCI_API_KEY 미설정 — REST 상세조회 불가."}
     from .client import KciClient, KciError
@@ -172,6 +190,11 @@ def kci_collect(title: str | None = None, terms: list[str] | None = None, set_sp
     - terms/title 있고 키 없음 → OAI 수확(date_from/until) + terms/contains 로컬 필터
     - terms/title 없음 → OAI 세트/날짜범위 전수 수확
     out_dir 미지정 시 홈의 kci-output/. OAI 날짜는 YYYY-MM-DD, REST 연도는 정수.
+
+    ⚠️ REST 경로는 각 검색어를 **제목축·키워드축 두 번** 조회해 합집합한다 → 결과는
+       '제목검색 결과'가 아니라 제목∪키워드다. 반환값 meta.axes 에 축별 total 이 담긴다.
+    ⚠️ truncated=true 면 max_records 상한에 잘린 것이다 — 그대로 분석에 쓰면 안 된다.
+       meta.union_upper_bound 위로 max_records 를 올려 재수집할 것.
     """
     from .exporters import export
     kws = [t for t in (terms or ([title] if title else [])) if t]
@@ -180,8 +203,9 @@ def kci_collect(title: str | None = None, terms: list[str] | None = None, set_sp
         if backend == "rest":
             from .client import KciClient, KciError
             try:
-                recs = KciClient().search_terms(kws, year_from=year_from, year_to=year_to,
-                                                max_records=max_records, contains=contains)
+                recs, meta = KciClient().search_terms_meta(
+                    kws, year_from=year_from, year_to=year_to,
+                    max_records=max_records, contains=contains)
             except KciError as e:
                 return {"error": str(e), "backend": backend, "reason": reason}
         else:
@@ -190,13 +214,22 @@ def kci_collect(title: str | None = None, terms: list[str] | None = None, set_sp
                 set_spec=set_spec, metadata_prefix="oai_kci",
                 date_from=date_from, date_until=date_until,
                 max_records=max_records, contains=subs)
+            meta = {"max_records": max_records, "returned": len(recs),
+                    "truncated": len(recs) >= max_records}
+            if meta["truncated"]:
+                meta["warning"] = (f"⚠️ 절단 의심 — 반환 {len(recs)}건이 max_records({max_records}) 와 "
+                                   f"같습니다. 상한을 올려 재수확해 실제 전량인지 확인하세요.")
     except OaiError as e:
         return {"error": str(e), "backend": backend, "reason": reason}
     fmts = formats or ["xlsx", "csv", "json"]
     nm = (name or f"kci_{(kws[0] if kws else set_spec)}").replace(" ", "_")[:60]
     base = out_dir or str(Path.home() / "kci-output")
     paths = export(recs, fmts, base, nm)
-    return {"count": len(recs), "backend": backend, "reason": reason, "files": paths}
+    out = {"count": len(recs), "backend": backend, "reason": reason,
+           "truncated": meta.get("truncated", False), "meta": meta, "files": paths}
+    if meta.get("warning"):
+        out["warning"] = meta["warning"]
+    return out
 
 
 def main() -> None:

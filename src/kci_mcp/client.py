@@ -73,14 +73,26 @@ class KciClient:
         except ParseError as e:
             raise KciError(str(e)) from e
 
-    def search(self, value: str, *, field: str = "title", max_records: int = 1000,
-               display: int = 100, **filters) -> list[Article]:
+    def search_meta(self, value: str, *, field: str = "title", max_records: int = 1000,
+                    display: int = 100, **filters) -> tuple[list[Article], dict]:
+        """search() + 회수 메타 — 조용한 절단 방지.
+
+        meta = {field, term, total, fetched, truncated}
+          total    : KCI 가 보고한 해당 축의 전체 건수(`outputData/result/total`)
+          fetched  : 실제 회수·중복제거 후 반환 건수
+          truncated: fetched < total (= max_records 상한에 걸려 잘렸다는 뜻)
+        절단 여부를 호출자에게 **반드시** 노출한다 — 상한에 걸린 결과를 완전한 코퍼스로
+        오인하면 계량서지 분석 전체가 무효가 된다.
+        """
         rows = min(display, 100)  # 요청 크기와 종료식이 항상 일치하도록 단일 변수로 클램프
         out: list[Article] = []
         seen: set = set()
         page = 1
+        total = 0
         while len(out) < max_records and page <= 1000:
-            total, arts = self.search_page(value, field=field, page=page, display=rows, **filters)
+            total_p, arts = self.search_page(value, field=field, page=page, display=rows, **filters)
+            if total_p:
+                total = total_p
             if not arts:
                 break
             before = len(out)
@@ -96,43 +108,93 @@ class KciClient:
                 break
             page += 1
             time.sleep(self.throttle)
-        return out[:max_records]
+        out = out[:max_records]
+        return out, {"field": field, "term": value, "total": total, "fetched": len(out),
+                     "truncated": bool(total) and len(out) < total}
 
-    def search_terms(self, terms, *, fields=("title", "keyword"),
-                     year_from: int | None = None, year_to: int | None = None,
-                     max_records: int = 3000, display: int = 100, contains=None,
-                     **filters) -> list[Article]:
-        """여러 변형어를 **각 필드(기본 title+keyword)로 개별 검색**해 arti_id/DOI 합집합(중복제거).
+    def search(self, value: str, *, field: str = "title", max_records: int = 1000,
+               display: int = 100, **filters) -> list[Article]:
+        """레코드만 반환하는 얇은 래퍼. 절단 여부까지 필요하면 search_meta() 를 쓴다."""
+        return self.search_meta(value, field=field, max_records=max_records,
+                                display=display, **filters)[0]
+
+    def search_terms_meta(self, terms, *, fields=("title", "keyword"),
+                          year_from: int | None = None, year_to: int | None = None,
+                          max_records: int = 3000, display: int = 100, contains=None,
+                          **filters) -> tuple[list[Article], dict]:
+        """여러 변형어를 **각 필드(기본 title+keyword)로 개별 검색**해 arti_id/DOI 합집합 + 회수 메타.
 
         KCI는 필드 내 OR 연산자가 없으므로 변형어·필드별 개별검색 합집합이 정석.
+        ⚠️ 기본 fields 가 두 축이라 결과는 '제목검색 결과'가 아니라 **제목∪키워드**다.
+           코퍼스 경계를 기술할 때 이 점을 명시해야 한다.
         title=제목검색, keyword=키워드검색(단독 가능). year_from/to→dateFrom/To(YYYYMM).
         contains→결과 부분일치 후처리 필터.
+
+        meta = {axes[], axes_planned, axes_run, union, union_upper_bound,
+                max_records, truncated, returned, (warning)}
         """
         terms = [t.strip() for t in (terms or []) if t and t.strip()]
+        fields = list(fields)
         if year_from:
             filters["dateFrom"] = f"{year_from}01"
         if year_to:
             filters["dateTo"] = f"{year_to}12"
         out: list[Article] = []
         seen: set = set()
+        axes: list[dict] = []
+        stopped_early = False
         for term in terms:
             for field in fields:
-                for a in self.search(term, field=field, max_records=max_records,
-                                     display=display, **filters):
+                recs, m = self.search_meta(term, field=field, max_records=max_records,
+                                           display=display, **filters)
+                new = 0
+                for a in recs:
                     k = a.dedup_key()
                     if k in seen:
                         continue
                     seen.add(k)
                     out.append(a)
+                    new += 1
+                axes.append({**m, "new": new})
                 if len(out) >= max_records:
+                    stopped_early = True
                     break
-            if len(out) >= max_records:
+            if stopped_early:
                 break
         out = out[:max_records]
+        planned = len(terms) * len(fields)
+        meta = {
+            "axes": axes,
+            "axes_planned": planned,
+            "axes_run": len(axes),
+            "union": len(out),
+            "union_upper_bound": sum(a["total"] for a in axes),
+            "max_records": max_records,
+            "truncated": bool(stopped_early or len(axes) < planned
+                              or any(a["truncated"] for a in axes)),
+        }
         if contains:
             subs = [contains] if isinstance(contains, str) else list(contains)
-            out = [a for a in out if a.matches(subs)]
-        return out
+            kept = [a for a in out if a.matches(subs)]
+            meta["contains_filtered_out"] = len(out) - len(kept)
+            out = kept
+        meta["returned"] = len(out)
+        if meta["truncated"]:
+            meta["warning"] = (
+                f"⚠️ 절단됨 — max_records={max_records} 상한에 걸렸습니다. "
+                f"실행한 검색축 {len(axes)}/{planned}개의 total 합은 {meta['union_upper_bound']}건"
+                f"(합집합 상한)입니다. max_records 를 그 위로 올려 재수집하세요."
+            )
+        return out, meta
+
+    def search_terms(self, terms, *, fields=("title", "keyword"),
+                     year_from: int | None = None, year_to: int | None = None,
+                     max_records: int = 3000, display: int = 100, contains=None,
+                     **filters) -> list[Article]:
+        """레코드만 반환하는 얇은 래퍼. 절단 여부까지 필요하면 search_terms_meta() 를 쓴다."""
+        return self.search_terms_meta(terms, fields=fields, year_from=year_from, year_to=year_to,
+                                      max_records=max_records, display=display,
+                                      contains=contains, **filters)[0]
 
     # ── articleDetail ─────────────────────────────────────────────────────────
     def detail(self, arti_id: str) -> Article | None:

@@ -54,12 +54,12 @@ config/         # 검색 설정 템플릿 (search.example.yaml)
 | 도구 | API | 설명 |
 |------|-----|------|
 | `kci_status` | (소량 articleSearch / OAI Identify) | 인증키 유효성·연결 점검 |
-| `kci_search` | articleSearch | 논문 검색 — title 필수 + 필터(author/journal/keyword/abstract/doi/연월·등록·수정일자) + 페이징 자동 |
-| `kci_detail` | articleDetail | Control Number(**`arti_id`**, 예 `ART003047608`)로 상세·초록·키워드·저자 상세 |
+| `kci_search` | articleSearch | 논문 검색 — title 필수 + 필터 + 페이징 자동. `total`·`truncated` 동반 반환. ⚠️ **키워드·ISSN·UCI 미제공**(원본 XML 에 필드 없음) |
+| `kci_detail` | articleDetail | Control Number(**`arti_id`**, 예 `ART003047608`)로 상세. **키워드·ISSN·등재여부·FWCI·저자소속·참고문헌의 유일한 출처** |
 | `kci_references` | referenceSearch | 제목 검색어로 참고문헌 원형 수집 |
 | `kci_journal_citation` | citation / citationDetail | 저널 인용지수(연도) / 상세(등재이력·연도별 IF) |
 | `kci_harvest` | OAI-PMH ListRecords | **무인증** 세트+날짜범위 대량 수확(oai_kci, resumptionToken 자동) |
-| `kci_collect` | **라우터**(REST↔OAI 자동) | 요청 성격·키 유무로 백엔드 자동 선택 → 정규화·중복제거 → xlsx/csv/json/sqlite. 설계: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| `kci_collect` | **라우터**(REST↔OAI 자동) | 백엔드 자동 선택 → 정규화·중복제거 → xlsx/csv/json/sqlite. `meta.axes`(축별 total)·`truncated` 동반. ⚠️ REST 경로는 **제목축∪키워드축** 합집합 |
 
 > **혼용 원칙**: REST/OAI를 공통 코어(models/parser/exporters) 위 두 클라이언트로 두고, `kci_collect`가
 > 라우팅. 키 없으면 자동 OAI 경로, 인용지수·참고문헌은 REST 전용. 상세 라우팅표 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -101,6 +101,14 @@ config/         # 검색 설정 템플릿 (search.example.yaml)
   `pyproject.toml`·`uv.lock` 에 `>=1.2.0,<2` 고정(해결). `.mcpb` 번들·로컬 `.venv` 는 영향 없었음.
 - ⚠️ **KCI 방화벽은 User-Agent 필터** — `curl` 기본 UA 는 HTTP 400 "차단" 안내페이지 반환(해외 IP 문구이나
   실제 조건은 UA). `requests` UA 는 200. 즉 클라우드/원격 환경에서도 REST·OAI 모두 정상 동작한다.
+- ✅ **v0.1.3 — 조용한 절단 제거**: `search_meta`/`search_terms_meta` 신설로 축별 `total`·`fetched`·
+  `truncated`·`union_upper_bound` 를 반환. `kci_search`/`kci_collect` 가 상한에 걸리면 경고 문자열을 붙인다.
+  기존 `search`/`search_terms` 는 얇은 래퍼로 남겨 호출부 호환 유지. 회귀 테스트 7건 추가(총 31 통과).
+- ⚠️ **articleSearch 는 키워드·ISSN·UCI 를 제공하지 않는다**(원본 XML 필드 부재 — 파서 문제 아님).
+  `keyword=` 로 **검색은 되지만** 결과에는 실리지 않는 비대칭. 키워드는 `articleDetail` 에만 있으므로
+  STM 토픽 라벨링용 키워드가 필요하면 건별 `kci_detail` 보강 패스가 전제 조건이다.
+- ⚠️ **`search_terms` 의 기본 `fields=("title","keyword")` = 두 축 합집합** — 결과는 '제목검색 결과'가
+  아니다. 코퍼스 경계를 기술할 때 반드시 명시할 것.
 - ⏭️ 다음: ① `kci_collect` 혼용 교차검증·초록 백필을 학부모 코퍼스에 적용 → ② `.mcpb` 재빌드·릴리스 태그 갱신.
 - ⚠️ **교육망(학교/교육청)·사내망 SSL 인터셉션** 대응: `truststore` 의존성으로 **OS 신뢰저장소** 사용
   (검증 끄지 않음). `KCI_OS_TRUST=0` 로 비활성 가능.

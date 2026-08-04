@@ -73,6 +73,13 @@ kci collect --config config/borderline_slow.yaml
 `kci_status` · `kci_search` · `kci_detail` · `kci_references` · `kci_journal_citation` · `kci_harvest` · `kci_collect`
 `kci_collect` 은 요청 성격·키 유무로 REST↔OAI 자동 선택.
 > 상세 조회 인자는 `arti_id`(KCI Control Number, 예: `ART003047608`).
+>
+> **알아둘 두 가지 (실측 확인)**
+> - `articleSearch` 는 `keyword=` 로 **검색은 되지만 응답에 키워드·ISSN·UCI 를 싣지 않는다**.
+>   검색 결과의 빈 `keywords` 는 '키워드 없는 논문'이 아니다 — 필요하면 `kci_detail` 로 건별 보강.
+> - `kci_collect` 의 REST 경로는 각 검색어를 **제목축·키워드축 두 번** 조회해 합집합한다.
+>   결과는 '제목검색 결과'가 아니라 제목∪키워드다. `meta.axes` 에 축별 `total` 이 담기고,
+>   `max_records` 상한에 걸리면 `truncated: true` 와 경고 문구가 함께 온다.
 
 ## 자격증명 / 네트워크
 - `KCI_API_KEY` (open.kci.go.kr 발급) → `.env`(gitignore) 또는 OS 환경변수. **커밋·로그 금지.** OAI는 키 불필요.
